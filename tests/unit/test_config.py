@@ -108,6 +108,39 @@ page_views:
     assert config.dataset.start.isoformat() == "2026-01-01T00:00:00-05:00"
 
 
+def test_new_behavior_configuration_loads() -> None:
+    raw = valid_raw_config()
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["conversion_pages"] = ["checkout"]
+    website["pages"] = {
+        "home": {"drop_off_probability": 0.25},
+        "products": {
+            "drop_off_probability": 0.10,
+            "delay": {"shape": 2.5, "scale_seconds": 7.0},
+        },
+    }
+    sessions = raw["sessions"]
+    assert isinstance(sessions, dict)
+    sessions["default_drop_off_probability"] = sessions.pop("drop_off_probability")
+    page_views = raw["page_views"]
+    assert isinstance(page_views, dict)
+    page_views["default_delay"] = page_views.pop("delay")
+    raw["visitors"] = {
+        "returning_visitor_rate": 0.25,
+        "max_sessions_per_visitor": 5,
+    }
+
+    config = parse_config(raw)
+
+    assert config.visitors.returning_visitor_rate == 0.25
+    assert config.visitors.max_sessions_per_visitor == 5
+    assert config.website.conversion_pages == frozenset({"checkout"})
+    assert config.website.pages["products"].delay is not None
+    assert config.sessions.default_drop_off_probability == 0.3
+    assert config.page_views.default_delay.shape == 2.0
+
+
 def test_invalid_transition_probabilities_are_rejected() -> None:
     raw = valid_raw_config()
     home = _graph(raw)["home"]
@@ -167,6 +200,110 @@ def test_all_24_hourly_intensity_values_are_required() -> None:
     del _hourly_intensity(raw)[23]
 
     with pytest.raises(ConfigurationError, match="hours 0-23"):
+        parse_config(raw)
+
+
+@pytest.mark.parametrize("rate", [-0.1, 1.1])
+def test_invalid_returning_visitor_rate_is_rejected(rate: float) -> None:
+    raw = valid_raw_config()
+    raw["visitors"] = {
+        "returning_visitor_rate": rate,
+        "max_sessions_per_visitor": 5,
+    }
+
+    with pytest.raises(ConfigurationError, match="returning_visitor_rate"):
+        parse_config(raw)
+
+
+def test_invalid_max_sessions_per_visitor_is_rejected() -> None:
+    raw = valid_raw_config()
+    raw["visitors"] = {
+        "returning_visitor_rate": 0.25,
+        "max_sessions_per_visitor": 0,
+    }
+
+    with pytest.raises(ConfigurationError, match="max_sessions_per_visitor"):
+        parse_config(raw)
+
+
+def test_invalid_default_drop_off_probability_is_rejected() -> None:
+    raw = valid_raw_config()
+    sessions = raw["sessions"]
+    assert isinstance(sessions, dict)
+    sessions["default_drop_off_probability"] = 1.1
+    sessions.pop("drop_off_probability")
+
+    with pytest.raises(ConfigurationError, match="default_drop_off_probability"):
+        parse_config(raw)
+
+
+def test_invalid_page_drop_off_probability_is_rejected() -> None:
+    raw = valid_raw_config()
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["pages"] = {"home": {"drop_off_probability": -0.1}}
+
+    with pytest.raises(ConfigurationError, match=r"pages\.\*\.drop_off_probability"):
+        parse_config(raw)
+
+
+@pytest.mark.parametrize(
+    "delay",
+    [
+        {"shape": 0.0, "scale_seconds": 5.0},
+        {"shape": 2.0, "scale_seconds": 0.0},
+    ],
+)
+def test_invalid_page_gamma_parameters_are_rejected(
+    delay: dict[str, float],
+) -> None:
+    raw = valid_raw_config()
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["pages"] = {"home": {"delay": delay}}
+
+    with pytest.raises(ConfigurationError, match=r"website\.pages\.\*\.delay"):
+        parse_config(raw)
+
+
+def test_invalid_page_override_name_is_rejected() -> None:
+    raw = valid_raw_config()
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["pages"] = {"missing": {"drop_off_probability": 0.1}}
+
+    with pytest.raises(ConfigurationError, match=r"website\.pages overrides"):
+        parse_config(raw)
+
+
+def test_invalid_conversion_page_name_is_rejected() -> None:
+    raw = valid_raw_config()
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["conversion_pages"] = ["missing"]
+
+    with pytest.raises(ConfigurationError, match="conversion page"):
+        parse_config(raw)
+
+
+@pytest.mark.parametrize(
+    "delay",
+    [
+        {"distribution": "normal", "shape": 2.0, "scale_seconds": 5.0},
+        {"distribution": "gamma", "shape": -1.0, "scale_seconds": 5.0},
+        {"distribution": "gamma", "shape": 2.0, "scale_seconds": -1.0},
+    ],
+)
+def test_invalid_default_gamma_parameters_are_rejected(
+    delay: dict[str, float | str],
+) -> None:
+    raw = valid_raw_config()
+    page_views = raw["page_views"]
+    assert isinstance(page_views, dict)
+    page_views["default_delay"] = delay
+    page_views.pop("delay")
+
+    with pytest.raises(ConfigurationError, match=r"page_views\.default_delay"):
         parse_config(raw)
 
 

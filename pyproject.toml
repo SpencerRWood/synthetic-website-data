@@ -26,7 +26,10 @@ dependencies = [
 [dependency-groups]
 dev = [
   "coverage[toml]",
+  "jupyter",
+  "matplotlib",
   "mypy",
+  "pandas",
   "pre-commit",
   "pytest",
   "pytest-cov",
@@ -67,6 +70,7 @@ skip_covered = true
 line-length = 88
 target-version = "py314"
 src = ["src", "tests"]
+extend-exclude = ["notebooks/*.ipynb"]
 
 [tool.ruff.lint]
 select = [
