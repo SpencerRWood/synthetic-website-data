@@ -56,6 +56,7 @@ website:
 
 arrivals:
   maximum_rate_per_hour: 50
+  annual_growth_rate: 0.02
   hourly_intensity:
     0: 0.05
     1: 0.03
@@ -81,6 +82,14 @@ arrivals:
     21: 0.18
     22: 0.12
     23: 0.08
+  weekday_intensity:
+    monday: 1.00
+    tuesday: 1.00
+    wednesday: 1.00
+    thursday: 1.00
+    friday: 0.90
+    saturday: 0.45
+    sunday: 0.35
 
 sessions:
   default_drop_off_probability: 0.30

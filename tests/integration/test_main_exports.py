@@ -29,6 +29,7 @@ website:
     checkout: {}
 arrivals:
   maximum_rate_per_hour: 20
+  annual_growth_rate: 0.0
   hourly_intensity:
     0: 0.0
     1: 0.0
@@ -54,6 +55,14 @@ arrivals:
     21: 0.0
     22: 0.0
     23: 0.0
+  weekday_intensity:
+    monday: 1.0
+    tuesday: 1.0
+    wednesday: 1.0
+    thursday: 1.0
+    friday: 1.0
+    saturday: 1.0
+    sunday: 1.0
 sessions:
   drop_off_probability: 0.0
   max_page_views: 30
@@ -116,6 +125,7 @@ website:
     checkout: {}
 arrivals:
   maximum_rate_per_hour: 5
+  annual_growth_rate: 0.0
   hourly_intensity:
     0: 0.0
     1: 0.0
@@ -141,6 +151,14 @@ arrivals:
     21: 0.0
     22: 0.0
     23: 0.0
+  weekday_intensity:
+    monday: 1.0
+    tuesday: 1.0
+    wednesday: 1.0
+    thursday: 1.0
+    friday: 1.0
+    saturday: 1.0
+    sunday: 1.0
 sessions:
   drop_off_probability: 0.0
   max_page_views: 30

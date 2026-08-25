@@ -29,7 +29,17 @@ def raw_generation_config(seed: int = 42) -> dict[str, object]:
         },
         "arrivals": {
             "maximum_rate_per_hour": 200,
+            "annual_growth_rate": 0.0,
             "hourly_intensity": {hour: 1.0 if hour == 9 else 0.0 for hour in range(24)},
+            "weekday_intensity": {
+                "monday": 1.0,
+                "tuesday": 1.0,
+                "wednesday": 1.0,
+                "thursday": 1.0,
+                "friday": 1.0,
+                "saturday": 1.0,
+                "sunday": 1.0,
+            },
         },
         "sessions": {
             "drop_off_probability": 0.0,
@@ -160,6 +170,53 @@ def test_returning_visitors_can_have_multiple_later_sessions() -> None:
         ):
             assert previous.session_end_time is not None
             assert current.session_start_time > previous.session_end_time
+
+
+def test_traffic_seasonality_preserves_session_and_conversion_semantics() -> None:
+    raw = raw_generation_config()
+    dataset_config = raw["dataset"]
+    assert isinstance(dataset_config, dict)
+    dataset_config["start_date"] = "2026-01-05T09:00:00"
+    dataset_config["end_date"] = "2026-01-06T11:00:00"
+    arrivals_config = raw["arrivals"]
+    assert isinstance(arrivals_config, dict)
+    arrivals_config["annual_growth_rate"] = 0.02
+    arrivals_config["hourly_intensity"] = dict.fromkeys(range(24), 1.0)
+    arrivals_config["weekday_intensity"] = {
+        "monday": 1.0,
+        "tuesday": 1.0,
+        "wednesday": 1.0,
+        "thursday": 1.0,
+        "friday": 0.9,
+        "saturday": 0.45,
+        "sunday": 0.35,
+    }
+    raw["visitors"] = {
+        "returning_visitor_rate": 1.0,
+        "max_sessions_per_visitor": 5,
+    }
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["conversion_pages"] = ["checkout"]
+    config = parse_config(raw)
+    dataset = generate_dataset(config)
+    arrivals = generate_arrivals(
+        start=config.dataset.start,
+        end=config.dataset.end,
+        config=config.arrivals,
+        rng=Random(config.dataset.random_seed),  # noqa: S311
+    )
+
+    assert len(dataset.sessions) == len(arrivals)
+    assert any(len(visitor.sessions) > 1 for visitor in dataset.visitors)
+    assert all(
+        [event.page for event in session.events] == ["home", "products", "checkout"]
+        for session in dataset.sessions
+    )
+    assert all(
+        session_converted(session, config.website.conversion_pages)
+        for session in dataset.sessions
+    )
 
 
 def test_returning_visitor_rate_targets_unique_returning_share() -> None:
