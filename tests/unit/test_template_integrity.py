@@ -11,33 +11,30 @@ def load_pyproject() -> dict[str, Any]:
 
 
 def test_package_can_be_imported() -> None:
-    package = import_module("template_synthetic_data")
+    package = import_module("synthetic_website_data")
 
     assert package.__all__ == ()
 
 
-def test_template_project_metadata_describes_scaffold() -> None:
+def test_project_metadata_describes_package() -> None:
     pyproject = load_pyproject()
     project = pyproject["project"]
 
-    assert project["name"] == "template-synthetic-data"
-    assert (
-        project["description"]
-        == "A minimal synthetic data generation template baseline."
-    )
+    assert project["name"] == "synthetic-website-data"
+    assert project["description"] == "Synthetic website event-stream data generator."
     assert project["requires-python"] == ">=3.14"
-    assert project["dependencies"] == []
+    assert project["dependencies"] == ["PyYAML>=6.0.3"]
 
 
-def test_template_declares_typed_src_package() -> None:
+def test_project_declares_typed_src_package() -> None:
     pyproject = load_pyproject()
     project = pyproject["project"]
     tool = pyproject["tool"]
     hatch_targets = tool["hatch"]["build"]["targets"]
 
-    assert (ROOT / "src" / "template_synthetic_data" / "py.typed").is_file()
+    assert (ROOT / "src" / "synthetic_website_data" / "py.typed").is_file()
     assert "Typing :: Typed" in project["classifiers"]
     assert hatch_targets["wheel"]["packages"] == [
-        "src/template_synthetic_data",
+        "src/synthetic_website_data",
     ]
-    assert tool["coverage"]["run"]["source"] == ["template_synthetic_data"]
+    assert tool["coverage"]["run"]["source"] == ["synthetic_website_data"]

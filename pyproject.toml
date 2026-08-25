@@ -3,9 +3,9 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "template-synthetic-data"
+name = "synthetic-website-data"
 version = "0.0.0"
-description = "A minimal synthetic data generation template baseline."
+description = "Synthetic website event-stream data generator."
 readme = "README.md"
 requires-python = ">=3.14"
 authors = [
@@ -19,7 +19,9 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
   "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+  "PyYAML>=6.0.3",
+]
 
 [dependency-groups]
 dev = [
@@ -30,10 +32,11 @@ dev = [
   "pytest-cov",
   "python-semantic-release",
   "ruff",
+  "tabulate>=0.10.0",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/template_synthetic_data"]
+packages = ["src/synthetic_website_data"]
 
 [tool.hatch.build.targets.sdist]
 exclude = [
@@ -53,7 +56,7 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-source = ["template_synthetic_data"]
+source = ["synthetic_website_data"]
 
 [tool.coverage.report]
 fail_under = 90

@@ -19,6 +19,7 @@ ENV/
 htmlcov/
 .tox/
 .nox/
+data/*
 
 # Build artifacts
 build/
