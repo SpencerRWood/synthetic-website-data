@@ -34,7 +34,7 @@ def session_rows(dataset: SyntheticDataset) -> list[dict[str, object]]:
             ),
             "event_count": len(session.events),
         }
-        for session in dataset.sessions
+        for session in dataset.iter_sessions()
     ]
 
 
@@ -47,7 +47,7 @@ def flatten_events(dataset: SyntheticDataset) -> list[dict[str, object]]:
             "page": event.page,
             "timestamp": event.timestamp.isoformat(),
         }
-        for event in dataset.events
+        for event in dataset.iter_events()
     ]
 
 
