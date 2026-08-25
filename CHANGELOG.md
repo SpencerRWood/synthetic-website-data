@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.3.0 (2026-08-25)
+
+### Features
+
+- Implement traffic seasonality features in arrivals simulation
+  ([`b41309d`](https://github.com/SpencerRWood/synthetic-website-data/commit/b41309de15ab354164eb789a18cf1a87782f58f5))
+
+
 ## v0.2.0 (2026-08-25)
 
 ### Features
