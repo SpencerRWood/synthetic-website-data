@@ -6,6 +6,10 @@
 
 - Initial Release
 
+## v0.0.0 (2026-08-24)
+
+- Initial Release
+
 ## v0.0.1 (2026-08-23)
 
 ### Chores
