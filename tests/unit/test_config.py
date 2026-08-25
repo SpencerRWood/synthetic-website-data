@@ -1,4 +1,5 @@
 from copy import deepcopy
+from math import inf, nan
 from pathlib import Path
 from typing import cast
 
@@ -27,7 +28,17 @@ def valid_raw_config() -> dict[str, object]:
         },
         "arrivals": {
             "maximum_rate_per_hour": 10,
+            "annual_growth_rate": 0.0,
             "hourly_intensity": dict.fromkeys(range(24), 0.5),
+            "weekday_intensity": {
+                "monday": 1.0,
+                "tuesday": 1.0,
+                "wednesday": 1.0,
+                "thursday": 1.0,
+                "friday": 0.9,
+                "saturday": 0.45,
+                "sunday": 0.35,
+            },
         },
         "sessions": {
             "drop_off_probability": 0.3,
@@ -65,6 +76,7 @@ website:
     checkout: {}
 arrivals:
   maximum_rate_per_hour: 10
+  annual_growth_rate: 0.0
   hourly_intensity:
     0: 0.1
     1: 0.1
@@ -90,6 +102,14 @@ arrivals:
     21: 0.1
     22: 0.1
     23: 0.1
+  weekday_intensity:
+    monday: 1.0
+    tuesday: 1.0
+    wednesday: 1.0
+    thursday: 1.0
+    friday: 0.9
+    saturday: 0.45
+    sunday: 0.35
 sessions:
   drop_off_probability: 0.3
   max_page_views: 30
@@ -106,6 +126,75 @@ page_views:
 
     assert config.website.entry_page == "home"
     assert config.dataset.start.isoformat() == "2026-01-01T00:00:00-05:00"
+
+
+def test_duplicate_weekday_keys_are_rejected(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+dataset:
+  start_date: "2026-01-01"
+  end_date: "2026-01-02"
+  timezone: "America/New_York"
+website:
+  entry_page: home
+  terminal_pages:
+    - checkout
+  graph:
+    home:
+      checkout: 1.0
+    checkout: {}
+arrivals:
+  maximum_rate_per_hour: 10
+  annual_growth_rate: 0.0
+  hourly_intensity:
+    0: 0.1
+    1: 0.1
+    2: 0.1
+    3: 0.1
+    4: 0.1
+    5: 0.1
+    6: 0.1
+    7: 0.1
+    8: 0.1
+    9: 0.1
+    10: 0.1
+    11: 0.1
+    12: 0.1
+    13: 0.1
+    14: 0.1
+    15: 0.1
+    16: 0.1
+    17: 0.1
+    18: 0.1
+    19: 0.1
+    20: 0.1
+    21: 0.1
+    22: 0.1
+    23: 0.1
+  weekday_intensity:
+    monday: 1.0
+    tuesday: 1.0
+    wednesday: 1.0
+    thursday: 1.0
+    friday: 0.9
+    saturday: 0.45
+    sunday: 0.35
+    monday: 0.5
+sessions:
+  drop_off_probability: 0.3
+  max_page_views: 30
+page_views:
+  delay:
+    distribution: gamma
+    shape: 2.0
+    scale_seconds: 5.0
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="duplicate configuration key"):
+        load_config(config_path)
 
 
 def test_new_behavior_configuration_loads() -> None:
@@ -200,6 +289,87 @@ def test_all_24_hourly_intensity_values_are_required() -> None:
     del _hourly_intensity(raw)[23]
 
     with pytest.raises(ConfigurationError, match="hours 0-23"):
+        parse_config(raw)
+
+
+def test_weekday_intensity_is_required() -> None:
+    raw = valid_raw_config()
+    del _arrivals(raw)["weekday_intensity"]
+
+    with pytest.raises(ConfigurationError, match="weekday_intensity"):
+        parse_config(raw)
+
+
+def test_annual_growth_rate_is_required() -> None:
+    raw = valid_raw_config()
+    del _arrivals(raw)["annual_growth_rate"]
+
+    with pytest.raises(ConfigurationError, match="annual_growth_rate"):
+        parse_config(raw)
+
+
+def test_all_7_weekday_intensity_values_are_required_when_configured() -> None:
+    raw = valid_raw_config()
+    _arrivals(raw)["weekday_intensity"] = {
+        "monday": 1.0,
+        "tuesday": 1.0,
+        "wednesday": 1.0,
+        "thursday": 1.0,
+        "friday": 0.9,
+        "saturday": 0.45,
+    }
+
+    with pytest.raises(ConfigurationError, match="monday through sunday"):
+        parse_config(raw)
+
+
+def test_invalid_weekday_names_are_rejected() -> None:
+    raw = valid_raw_config()
+    _arrivals(raw)["weekday_intensity"] = {
+        "monday": 1.0,
+        "tuesday": 1.0,
+        "wednesday": 1.0,
+        "thursday": 1.0,
+        "friday": 0.9,
+        "saturday": 0.45,
+        "funday": 0.35,
+    }
+
+    with pytest.raises(ConfigurationError, match="monday through sunday"):
+        parse_config(raw)
+
+
+@pytest.mark.parametrize("intensity", [-0.1, 1.1])
+def test_weekday_arrival_intensity_bounds(intensity: float) -> None:
+    raw = valid_raw_config()
+    _arrivals(raw)["weekday_intensity"] = {
+        "monday": intensity,
+        "tuesday": 1.0,
+        "wednesday": 1.0,
+        "thursday": 1.0,
+        "friday": 0.9,
+        "saturday": 0.45,
+        "sunday": 0.35,
+    }
+
+    with pytest.raises(ConfigurationError, match="between 0 and 1"):
+        parse_config(raw)
+
+
+@pytest.mark.parametrize("growth_rate", [nan, inf, -inf])
+def test_non_finite_annual_growth_rate_is_rejected(growth_rate: float) -> None:
+    raw = valid_raw_config()
+    _arrivals(raw)["annual_growth_rate"] = growth_rate
+
+    with pytest.raises(ConfigurationError, match="annual_growth_rate"):
+        parse_config(raw)
+
+
+def test_annual_growth_rate_cannot_make_linear_trend_negative() -> None:
+    raw = valid_raw_config()
+    _arrivals(raw)["annual_growth_rate"] = -400.0
+
+    with pytest.raises(ConfigurationError, match="trend intensity negative"):
         parse_config(raw)
 
 
@@ -323,8 +493,12 @@ def _graph(raw: dict[str, object]) -> dict[str, dict[str, float]]:
 
 
 def _hourly_intensity(raw: dict[str, object]) -> dict[int, float]:
-    arrivals = raw["arrivals"]
-    assert isinstance(arrivals, dict)
-    hourly = arrivals["hourly_intensity"]
+    hourly = _arrivals(raw)["hourly_intensity"]
     assert isinstance(hourly, dict)
     return cast("dict[int, float]", hourly)
+
+
+def _arrivals(raw: dict[str, object]) -> dict[str, object]:
+    arrivals = raw["arrivals"]
+    assert isinstance(arrivals, dict)
+    return cast("dict[str, object]", arrivals)

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from math import isclose
+from math import isclose, isfinite
 from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -12,6 +12,32 @@ import yaml  # type: ignore[import-untyped]
 
 class ConfigurationError(ValueError):
     """Raised when a generator configuration is invalid."""
+
+
+class _UniqueKeySafeLoader(yaml.SafeLoader):  # type: ignore[misc]
+    """YAML loader that rejects duplicate mapping keys."""
+
+
+def _construct_unique_mapping(
+    loader: _UniqueKeySafeLoader,
+    node: yaml.MappingNode,
+    deep: bool = False,
+) -> dict[Any, Any]:
+    loader.flatten_mapping(node)
+    mapping: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise ConfigurationError(f"duplicate configuration key: {key!r}")
+        value = loader.construct_object(value_node, deep=deep)
+        mapping[key] = value
+    return mapping
+
+
+_UniqueKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
 
 
 @dataclass(frozen=True)
@@ -47,6 +73,8 @@ class WebsiteConfig:
 class ArrivalsConfig:
     maximum_rate_per_hour: float
     hourly_intensity: dict[int, float]
+    weekday_intensity: dict[str, float]
+    annual_growth_rate: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -89,7 +117,10 @@ class GeneratorConfig:
 def load_config(path: str | Path) -> GeneratorConfig:
     """Load and validate a YAML generator configuration."""
     config_path = Path(path)
-    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    raw = yaml.load(
+        config_path.read_text(encoding="utf-8"),
+        Loader=_UniqueKeySafeLoader,  # noqa: S506
+    )
     if not isinstance(raw, dict):
         raise ConfigurationError("configuration must be a mapping")
     return parse_config(cast("dict[str, Any]", raw))
@@ -106,7 +137,7 @@ def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
 
     dataset = _parse_dataset(_required_mapping(raw, "dataset"), timezone)
     website = _parse_website(_required_mapping(raw, "website"))
-    arrivals = _parse_arrivals(_required_mapping(raw, "arrivals"))
+    arrivals = _parse_arrivals(_required_mapping(raw, "arrivals"), dataset)
     sessions = _parse_sessions(_required_mapping(raw, "sessions"))
     page_views = _parse_page_views(_required_mapping(raw, "page_views"))
     visitors = _parse_visitors(raw.get("visitors", {}))
@@ -194,7 +225,20 @@ def _parse_website(raw: dict[str, Any]) -> WebsiteConfig:  # noqa: PLR0912
     )
 
 
-def _parse_arrivals(raw: dict[str, Any]) -> ArrivalsConfig:
+WEEKDAY_NAMES = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+
+SECONDS_PER_YEAR = 365.2425 * 24 * 60 * 60
+
+
+def _parse_arrivals(raw: dict[str, Any], dataset: DatasetConfig) -> ArrivalsConfig:
     maximum_rate = float(_required(raw, "maximum_rate_per_hour"))
     if maximum_rate <= 0:
         raise ConfigurationError("arrivals.maximum_rate_per_hour must be > 0")
@@ -210,9 +254,36 @@ def _parse_arrivals(raw: dict[str, Any]) -> ArrivalsConfig:
                 "arrival hourly intensities must be between 0 and 1"
             )
 
+    weekday_raw = _required_mapping(raw, "weekday_intensity")
+    weekday_intensities = {
+        str(weekday).lower(): float(intensity)
+        for weekday, intensity in weekday_raw.items()
+    }
+    if set(weekday_intensities) != set(WEEKDAY_NAMES):
+        raise ConfigurationError(
+            "arrivals.weekday_intensity must define exactly monday through sunday"
+        )
+    for intensity in weekday_intensities.values():
+        if not 0 <= intensity <= 1:
+            raise ConfigurationError(
+                "arrival weekday intensities must be between 0 and 1"
+            )
+
+    annual_growth_rate = float(_required(raw, "annual_growth_rate"))
+    if not isfinite(annual_growth_rate):
+        raise ConfigurationError("arrivals.annual_growth_rate must be finite")
+    duration_years = (dataset.end - dataset.start).total_seconds() / SECONDS_PER_YEAR
+    trend_end_demand = 1.0 + annual_growth_rate * duration_years
+    if trend_end_demand < 0:
+        raise ConfigurationError(
+            "arrivals.annual_growth_rate would make trend intensity negative"
+        )
+
     return ArrivalsConfig(
         maximum_rate_per_hour=maximum_rate,
         hourly_intensity=hours,
+        weekday_intensity=weekday_intensities,
+        annual_growth_rate=annual_growth_rate,
     )
 
 
