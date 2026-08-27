@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.5.0 (2026-08-27)
+
+### Features
+
+- Add configurable event types and properties
+  ([`cec047e`](https://github.com/SpencerRWood/synthetic-website-data/commit/cec047ede0e1ef9a0441cf6b57439db75429825f))
+
+
 ## v0.4.0 (2026-08-27)
 
 ### Features
