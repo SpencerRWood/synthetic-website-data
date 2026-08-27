@@ -128,6 +128,265 @@ page_views:
     assert config.dataset.start.isoformat() == "2026-01-01T00:00:00-05:00"
 
 
+def test_valid_configuration_loads_graph_from_relative_website_file(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "website.yaml").write_text(
+        """
+graph:
+  home:
+    products: 0.5
+    checkout: 0.5
+  products:
+    checkout: 1.0
+  checkout: {}
+pages:
+  home:
+    event_type: page_view
+  products:
+    event_type: product_view
+    drop_off_probability: 0.2
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "event_properties.yaml").write_text(
+        """
+event_properties:
+  product_view:
+    product_id:
+      type: id
+      prefix: test_
+      min: 1
+      max: 9
+    price:
+      type: float
+      min: 1.5
+      max: 9.5
+      decimals: 1
+""",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+dataset:
+  start_date: "2026-01-01"
+  end_date: "2026-01-02"
+  timezone: "America/New_York"
+event_properties_path: event_properties.yaml
+website:
+  graph_path: website.yaml
+  entry_page: home
+  terminal_pages:
+    - checkout
+  pages:
+    products:
+      drop_off_probability: 0.1
+arrivals:
+  maximum_rate_per_hour: 10
+  annual_growth_rate: 0.0
+  hourly_intensity:
+    0: 0.1
+    1: 0.1
+    2: 0.1
+    3: 0.1
+    4: 0.1
+    5: 0.1
+    6: 0.1
+    7: 0.1
+    8: 0.1
+    9: 0.1
+    10: 0.1
+    11: 0.1
+    12: 0.1
+    13: 0.1
+    14: 0.1
+    15: 0.1
+    16: 0.1
+    17: 0.1
+    18: 0.1
+    19: 0.1
+    20: 0.1
+    21: 0.1
+    22: 0.1
+    23: 0.1
+  weekday_intensity:
+    monday: 1.0
+    tuesday: 1.0
+    wednesday: 1.0
+    thursday: 1.0
+    friday: 0.9
+    saturday: 0.45
+    sunday: 0.35
+sessions:
+  drop_off_probability: 0.3
+  max_page_views: 30
+page_views:
+  delay:
+    distribution: gamma
+    shape: 2.0
+    scale_seconds: 5.0
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.website.graph["home"] == {"products": 0.5, "checkout": 0.5}
+    assert config.website.pages["products"].event_type == "product_view"
+    assert config.website.pages["products"].drop_off_probability == 0.1
+    product_properties = config.event_properties.event_types["product_view"]
+    assert product_properties["product_id"].prefix == "test_"
+    assert product_properties["price"].decimals == 1
+
+
+def test_configuration_rejects_inline_graph_and_graph_path(tmp_path: Path) -> None:
+    (tmp_path / "website.yaml").write_text("graph:\n  home: {}\n", encoding="utf-8")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+dataset:
+  start_date: "2026-01-01"
+  end_date: "2026-01-02"
+  timezone: "America/New_York"
+website:
+  graph_path: website.yaml
+  entry_page: home
+  terminal_pages:
+    - checkout
+  graph:
+    home:
+      checkout: 1.0
+    checkout: {}
+arrivals:
+  maximum_rate_per_hour: 10
+  annual_growth_rate: 0.0
+  hourly_intensity:
+    0: 0.1
+    1: 0.1
+    2: 0.1
+    3: 0.1
+    4: 0.1
+    5: 0.1
+    6: 0.1
+    7: 0.1
+    8: 0.1
+    9: 0.1
+    10: 0.1
+    11: 0.1
+    12: 0.1
+    13: 0.1
+    14: 0.1
+    15: 0.1
+    16: 0.1
+    17: 0.1
+    18: 0.1
+    19: 0.1
+    20: 0.1
+    21: 0.1
+    22: 0.1
+    23: 0.1
+  weekday_intensity:
+    monday: 1.0
+    tuesday: 1.0
+    wednesday: 1.0
+    thursday: 1.0
+    friday: 0.9
+    saturday: 0.45
+    sunday: 0.35
+sessions:
+  drop_off_probability: 0.3
+  max_page_views: 30
+page_views:
+  delay:
+    distribution: gamma
+    shape: 2.0
+    scale_seconds: 5.0
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="cannot both be configured"):
+        load_config(config_path)
+
+
+def test_configuration_rejects_inline_event_properties_and_path(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "event_properties.yaml").write_text(
+        "event_properties:\n  page_view: {}\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+dataset:
+  start_date: "2026-01-01"
+  end_date: "2026-01-02"
+  timezone: "America/New_York"
+event_properties_path: event_properties.yaml
+event_properties:
+  page_view: {}
+website:
+  entry_page: home
+  terminal_pages:
+    - checkout
+  graph:
+    home:
+      checkout: 1.0
+    checkout: {}
+arrivals:
+  maximum_rate_per_hour: 10
+  annual_growth_rate: 0.0
+  hourly_intensity:
+    0: 0.1
+    1: 0.1
+    2: 0.1
+    3: 0.1
+    4: 0.1
+    5: 0.1
+    6: 0.1
+    7: 0.1
+    8: 0.1
+    9: 0.1
+    10: 0.1
+    11: 0.1
+    12: 0.1
+    13: 0.1
+    14: 0.1
+    15: 0.1
+    16: 0.1
+    17: 0.1
+    18: 0.1
+    19: 0.1
+    20: 0.1
+    21: 0.1
+    22: 0.1
+    23: 0.1
+  weekday_intensity:
+    monday: 1.0
+    tuesday: 1.0
+    wednesday: 1.0
+    thursday: 1.0
+    friday: 0.9
+    saturday: 0.45
+    sunday: 0.35
+sessions:
+  drop_off_probability: 0.3
+  max_page_views: 30
+page_views:
+  delay:
+    distribution: gamma
+    shape: 2.0
+    scale_seconds: 5.0
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="cannot both be configured"):
+        load_config(config_path)
+
+
 def test_duplicate_weekday_keys_are_rejected(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

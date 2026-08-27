@@ -5,6 +5,30 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
 
+EVENT_TYPE_PAGE_VIEW = "page_view"
+EVENT_TYPE_CLICK = "click"
+EVENT_TYPE_PRODUCT_VIEW = "product_view"
+EVENT_TYPE_SEARCH = "search"
+EVENT_TYPE_ADD_TO_CART = "add_to_cart"
+EVENT_TYPE_BEGIN_CHECKOUT = "begin_checkout"
+EVENT_TYPE_PURCHASE = "purchase"
+EVENT_TYPE_FORM_SUBMIT = "form_submit"
+EVENT_TYPE_NEWSLETTER_SIGNUP = "newsletter_signup"
+
+SUPPORTED_EVENT_TYPES = frozenset(
+    {
+        EVENT_TYPE_PAGE_VIEW,
+        EVENT_TYPE_CLICK,
+        EVENT_TYPE_PRODUCT_VIEW,
+        EVENT_TYPE_SEARCH,
+        EVENT_TYPE_ADD_TO_CART,
+        EVENT_TYPE_BEGIN_CHECKOUT,
+        EVENT_TYPE_PURCHASE,
+        EVENT_TYPE_FORM_SUBMIT,
+        EVENT_TYPE_NEWSLETTER_SIGNUP,
+    }
+)
+
 
 @dataclass
 class Event:
@@ -13,6 +37,8 @@ class Event:
     session_id: UUID
     page: str
     timestamp: datetime
+    event_type: str = EVENT_TYPE_PAGE_VIEW
+    properties: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass

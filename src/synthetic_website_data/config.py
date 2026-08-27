@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from math import isclose, isfinite
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
 import yaml  # type: ignore[import-untyped]
@@ -58,6 +58,7 @@ class PageViewDelayConfig:
 class PageBehaviorConfig:
     drop_off_probability: float | None = None
     delay: PageViewDelayConfig | None = None
+    event_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +105,25 @@ class VisitorsConfig:
     max_sessions_per_visitor: int = 1
 
 
+PropertySpecKind = Literal["choice", "float", "id", "integer", "literal"]
+
+
+@dataclass(frozen=True)
+class EventPropertySpec:
+    kind: PropertySpecKind
+    value: object = None
+    values: tuple[object, ...] = ()
+    minimum: float | None = None
+    maximum: float | None = None
+    decimals: int = 2
+    prefix: str = ""
+
+
+@dataclass(frozen=True)
+class EventPropertiesConfig:
+    event_types: dict[str, dict[str, EventPropertySpec]]
+
+
 @dataclass(frozen=True)
 class GeneratorConfig:
     dataset: DatasetConfig
@@ -112,18 +132,102 @@ class GeneratorConfig:
     sessions: SessionsConfig
     page_views: PageViewsConfig
     visitors: VisitorsConfig
+    event_properties: EventPropertiesConfig
 
 
 def load_config(path: str | Path) -> GeneratorConfig:
     """Load and validate a YAML generator configuration."""
     config_path = Path(path)
+    raw = _load_yaml_mapping(config_path, "configuration")
+    raw = _resolve_website_graph_reference(raw, config_path.parent)
+    raw = _resolve_event_properties_reference(raw, config_path.parent)
+    return parse_config(raw)
+
+
+def _load_yaml_mapping(path: Path, description: str) -> dict[str, Any]:
     raw = yaml.load(
-        config_path.read_text(encoding="utf-8"),
+        path.read_text(encoding="utf-8"),
         Loader=_UniqueKeySafeLoader,  # noqa: S506
     )
     if not isinstance(raw, dict):
-        raise ConfigurationError("configuration must be a mapping")
-    return parse_config(cast("dict[str, Any]", raw))
+        raise ConfigurationError(f"{description} must be a mapping")
+    return cast("dict[str, Any]", raw)
+
+
+def _resolve_website_graph_reference(
+    raw: dict[str, Any],
+    base_path: Path,
+) -> dict[str, Any]:
+    website = _required_mapping(raw, "website")
+    graph_path = website.pop("graph_path", None)
+    if graph_path is None:
+        return raw
+    if "graph" in website:
+        raise ConfigurationError(
+            "website.graph and website.graph_path cannot both be configured"
+        )
+
+    graph_config_path = Path(str(graph_path))
+    if not graph_config_path.is_absolute():
+        graph_config_path = base_path / graph_config_path
+    graph_config = _load_yaml_mapping(graph_config_path, "website graph configuration")
+    website["graph"] = _required_mapping(graph_config, "graph")
+    website["pages"] = _merge_page_configs(
+        graph_config.get("pages", {}),
+        website.get("pages", {}),
+    )
+    return raw
+
+
+def _merge_page_configs(
+    base_value: object,
+    override_value: object,
+) -> dict[str, Any]:
+    base = _optional_mapping(base_value, "website.pages")
+    override = _optional_mapping(override_value, "website.pages")
+    merged: dict[str, Any] = {}
+    for page, config in base.items():
+        if config is None:
+            merged[str(page)] = {}
+        elif not isinstance(config, dict):
+            raise ConfigurationError("website.pages.* must be a mapping")
+        else:
+            merged[str(page)] = dict(cast("dict[str, Any]", config))
+    for page, config in override.items():
+        if config is None:
+            merged[str(page)] = {}
+        elif not isinstance(config, dict):
+            raise ConfigurationError("website.pages.* must be a mapping")
+        else:
+            existing = merged.get(str(page), {})
+            merged[str(page)] = {**existing, **cast("dict[str, Any]", config)}
+    return merged
+
+
+def _resolve_event_properties_reference(
+    raw: dict[str, Any],
+    base_path: Path,
+) -> dict[str, Any]:
+    properties_path = raw.pop("event_properties_path", None)
+    if properties_path is None:
+        return raw
+    if "event_properties" in raw:
+        raise ConfigurationError(
+            "event_properties and event_properties_path cannot both be configured"
+        )
+
+    properties_config_path = Path(str(properties_path))
+    if not properties_config_path.is_absolute():
+        properties_config_path = base_path / properties_config_path
+    properties_config = _load_yaml_mapping(
+        properties_config_path,
+        "event properties configuration",
+    )
+    raw["event_properties"] = _required_mapping(
+        properties_config,
+        "event_properties",
+    )
+    return raw
 
 
 def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
@@ -141,6 +245,7 @@ def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
     sessions = _parse_sessions(_required_mapping(raw, "sessions"))
     page_views = _parse_page_views(_required_mapping(raw, "page_views"))
     visitors = _parse_visitors(raw.get("visitors", {}))
+    event_properties = _parse_event_properties(raw.get("event_properties", {}))
 
     return GeneratorConfig(
         dataset=dataset,
@@ -149,6 +254,7 @@ def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
         sessions=sessions,
         page_views=page_views,
         visitors=visitors,
+        event_properties=event_properties,
     )
 
 
@@ -331,6 +437,79 @@ def _parse_visitors(raw_value: object) -> VisitorsConfig:
     )
 
 
+def _parse_event_properties(raw_value: object) -> EventPropertiesConfig:
+    if raw_value is None:
+        return EventPropertiesConfig(event_types={})
+    if not isinstance(raw_value, dict):
+        raise ConfigurationError("event_properties must be a mapping")
+
+    event_types: dict[str, dict[str, EventPropertySpec]] = {}
+    for event_type, raw_properties in cast("dict[str, Any]", raw_value).items():
+        if not isinstance(raw_properties, dict):
+            raise ConfigurationError("event_properties.* must be a mapping")
+        properties: dict[str, EventPropertySpec] = {}
+        for property_name, raw_spec in raw_properties.items():
+            properties[str(property_name)] = _parse_event_property_spec(
+                cast("object", raw_spec),
+                f"event_properties.{event_type}.{property_name}",
+            )
+        event_types[str(event_type)] = properties
+    return EventPropertiesConfig(event_types=event_types)
+
+
+def _parse_event_property_spec(
+    raw_value: object,
+    field_name: str,
+) -> EventPropertySpec:
+    if not isinstance(raw_value, dict):
+        return EventPropertySpec(kind="literal", value=raw_value)
+    raw = cast("dict[str, Any]", raw_value)
+    raw_kind = str(_required(raw, "type"))
+    if raw_kind == "choice":
+        values = raw.get("values")
+        if not isinstance(values, list) or not values:
+            raise ConfigurationError(f"{field_name}.values must be a non-empty list")
+        return EventPropertySpec(kind="choice", values=tuple(values))
+    if raw_kind == "float":
+        minimum = float(_required(raw, "min"))
+        maximum = float(_required(raw, "max"))
+        decimals = int(raw.get("decimals", 2))
+        _validate_numeric_range(minimum, maximum, field_name)
+        if decimals < 0:
+            raise ConfigurationError(f"{field_name}.decimals must be >= 0")
+        return EventPropertySpec(
+            kind="float",
+            minimum=minimum,
+            maximum=maximum,
+            decimals=decimals,
+        )
+    if raw_kind == "id":
+        minimum = float(int(_required(raw, "min")))
+        maximum = float(int(_required(raw, "max")))
+        _validate_numeric_range(minimum, maximum, field_name)
+        return EventPropertySpec(
+            kind="id",
+            minimum=minimum,
+            maximum=maximum,
+            prefix=str(raw.get("prefix", "")),
+        )
+    if raw_kind == "integer":
+        minimum = float(int(_required(raw, "min")))
+        maximum = float(int(_required(raw, "max")))
+        _validate_numeric_range(minimum, maximum, field_name)
+        return EventPropertySpec(kind="integer", minimum=minimum, maximum=maximum)
+    if raw_kind == "literal":
+        return EventPropertySpec(kind="literal", value=raw.get("value"))
+    raise ConfigurationError(
+        f"{field_name}.type must be choice, float, id, integer, or literal"
+    )
+
+
+def _validate_numeric_range(minimum: float, maximum: float, field_name: str) -> None:
+    if minimum > maximum:
+        raise ConfigurationError(f"{field_name}.min must be <= max")
+
+
 def _parse_page_behaviors(raw_value: object) -> dict[str, PageBehaviorConfig]:
     if raw_value is None:
         return {}
@@ -360,9 +539,16 @@ def _parse_page_behaviors(raw_value: object) -> dict[str, PageBehaviorConfig]:
                 "website.pages.*.delay",
                 require_distribution=False,
             )
+        event_type_raw = page_config.get("event_type")
+        event_type = None
+        if event_type_raw is not None:
+            event_type = str(event_type_raw)
+            if not event_type:
+                raise ConfigurationError("website.pages.*.event_type must not be empty")
         pages[page_name] = PageBehaviorConfig(
             drop_off_probability=drop_off_probability,
             delay=delay,
+            event_type=event_type,
         )
     return pages
 
@@ -432,6 +618,14 @@ def _required_mapping(raw: dict[str, Any], key: str) -> dict[str, Any]:
     value = _required(raw, key)
     if not isinstance(value, dict):
         raise ConfigurationError(f"{key} must be a mapping")
+    return cast("dict[str, Any]", value)
+
+
+def _optional_mapping(value: object, field_name: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigurationError(f"{field_name} must be a mapping")
     return cast("dict[str, Any]", value)
 
 

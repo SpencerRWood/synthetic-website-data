@@ -1,0 +1,54 @@
+pages:
+  home:
+    event_type: page_view
+    drop_off_probability: 0.25
+  products:
+    event_type: page_view
+    drop_off_probability: 0.10
+    delay:
+      shape: 2.5
+      scale_seconds: 7.0
+  product_detail:
+    event_type: product_view
+    drop_off_probability: 0.08
+    delay:
+      shape: 3.0
+      scale_seconds: 10.0
+  blog:
+    event_type: page_view
+  contact:
+    event_type: form_submit
+  cart:
+    event_type: add_to_cart
+    drop_off_probability: 0.12
+  checkout:
+    event_type: begin_checkout
+    drop_off_probability: 0.15
+  order_confirmation:
+    event_type: purchase
+    drop_off_probability: 1.0
+
+graph:
+  home:
+    products: 0.50
+    blog: 0.30
+    contact: 0.20
+  products:
+    product_detail: 0.50
+    cart: 0.30
+    home: 0.20
+  product_detail:
+    products: 0.30
+    cart: 0.50
+    home: 0.20
+  blog:
+    home: 0.70
+    products: 0.30
+  contact:
+    home: 1.00
+  cart:
+    checkout: 0.60
+    products: 0.40
+  checkout:
+    order_confirmation: 1.00
+  order_confirmation: {}

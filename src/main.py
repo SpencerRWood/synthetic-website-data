@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -38,7 +39,11 @@ def session_rows(dataset: SyntheticDataset) -> list[dict[str, object]]:
     ]
 
 
-def flatten_events(dataset: SyntheticDataset) -> list[dict[str, object]]:
+def flatten_events(
+    dataset: SyntheticDataset,
+    *,
+    serialize_properties: bool = False,
+) -> list[dict[str, object]]:
     return [
         {
             "event_id": str(event.event_id),
@@ -46,6 +51,16 @@ def flatten_events(dataset: SyntheticDataset) -> list[dict[str, object]]:
             "session_id": str(event.session_id),
             "page": event.page,
             "timestamp": event.timestamp.isoformat(),
+            "event_type": event.event_type,
+            "properties": (
+                json.dumps(
+                    event.properties,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                if serialize_properties
+                else event.properties
+            ),
         }
         for event in dataset.iter_events()
     ]
@@ -72,6 +87,8 @@ def hierarchical_dataset_rows(dataset: SyntheticDataset) -> list[dict[str, objec
                             "session_id": str(event.session_id),
                             "page": event.page,
                             "timestamp": event.timestamp.isoformat(),
+                            "event_type": event.event_type,
+                            "properties": event.properties,
                         }
                         for event in session.events
                     ],
@@ -100,7 +117,10 @@ def generate_and_export(
     }
     export_csv(visitor_rows(dataset), outputs["visitors_csv"])
     export_csv(session_rows(dataset), outputs["sessions_csv"])
-    export_csv(flatten_events(dataset), outputs["events_csv"])
+    export_csv(
+        flatten_events(dataset, serialize_properties=True),
+        outputs["events_csv"],
+    )
     export_json(hierarchical_dataset_rows(dataset), outputs["dataset_json"])
     export_json(flatten_events(dataset), outputs["events_json"])
     return outputs

@@ -3,7 +3,11 @@ from random import Random
 from synthetic_website_data.arrivals import generate_arrivals
 from synthetic_website_data.config import parse_config
 from synthetic_website_data.generators import generate_dataset
-from synthetic_website_data.models import SyntheticDataset, session_converted
+from synthetic_website_data.models import (
+    SUPPORTED_EVENT_TYPES,
+    SyntheticDataset,
+    session_converted,
+)
 from synthetic_website_data.traversal import (
     delay_for_page,
     drop_off_probability_for_page,
@@ -105,6 +109,8 @@ def test_sessions_follow_graph_and_timestamp_rules() -> None:
             assert event.session_id == session.session_id
             assert event.timestamp >= session.session_start_time
             assert event.timestamp < config.dataset.end
+            assert event.event_type in SUPPORTED_EVENT_TYPES
+            assert isinstance(event.properties, dict)
 
         for current, next_event in zip(
             session.events,
@@ -125,6 +131,120 @@ def test_terminal_pages_terminate_session() -> None:
         [event.page for event in session.events] == ["home", "products", "checkout"]
         for session in dataset.sessions
     )
+
+
+def test_generated_event_types_follow_page_context() -> None:
+    raw = raw_generation_config()
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["terminal_pages"] = ["order_confirmation"]
+    website["graph"] = {
+        "home": {"products": 1.0},
+        "products": {"search": 1.0},
+        "search": {"checkout": 1.0},
+        "checkout": {"order_confirmation": 1.0},
+        "order_confirmation": {},
+    }
+    dataset = generate_dataset(parse_config(raw))
+
+    assert [event.event_type for event in dataset.sessions[0].events] == [
+        "page_view",
+        "product_view",
+        "search",
+        "begin_checkout",
+        "purchase",
+    ]
+
+
+def test_generated_event_types_can_be_mapped_by_page_config() -> None:
+    raw = raw_generation_config()
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["terminal_pages"] = ["thanks"]
+    website["graph"] = {
+        "home": {"details": 1.0},
+        "details": {"basket": 1.0},
+        "basket": {"thanks": 1.0},
+        "thanks": {},
+    }
+    website["pages"] = {
+        "details": {"event_type": "product_view"},
+        "basket": {"event_type": "add_to_cart"},
+        "thanks": {"event_type": "purchase"},
+    }
+    dataset = generate_dataset(parse_config(raw))
+
+    assert [event.event_type for event in dataset.sessions[0].events] == [
+        "page_view",
+        "product_view",
+        "add_to_cart",
+        "purchase",
+    ]
+
+
+def test_generated_event_properties_are_synthetic_and_event_specific() -> None:
+    raw = raw_generation_config()
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["terminal_pages"] = ["order_confirmation"]
+    website["graph"] = {
+        "home": {"product_detail": 1.0},
+        "product_detail": {"cart": 1.0},
+        "cart": {"search": 1.0},
+        "search": {"checkout": 1.0},
+        "checkout": {"order_confirmation": 1.0},
+        "order_confirmation": {},
+    }
+    dataset = generate_dataset(parse_config(raw))
+    events_by_type = {event.event_type: event for event in dataset.sessions[0].events}
+
+    product_view = events_by_type["product_view"]
+    add_to_cart = events_by_type["add_to_cart"]
+    search = events_by_type["search"]
+    begin_checkout = events_by_type["begin_checkout"]
+    purchase = events_by_type["purchase"]
+
+    assert set(product_view.properties) == {"product_id", "category", "price"}
+    assert isinstance(product_view.properties["product_id"], str)
+    assert product_view.properties["product_id"] != "detail"
+    assert set(add_to_cart.properties) == {
+        "product_id",
+        "quantity",
+        "price",
+        "cart_value",
+    }
+    assert set(search.properties) == {"search_query", "results_count"}
+    assert set(begin_checkout.properties) == {"items_count", "cart_value"}
+    assert set(purchase.properties) == {"order_id", "items_count", "order_value"}
+
+
+def test_generated_event_properties_use_configured_specs() -> None:
+    raw = raw_generation_config()
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["terminal_pages"] = ["product_detail"]
+    website["graph"] = {
+        "home": {"product_detail": 1.0},
+        "product_detail": {},
+    }
+    raw["event_properties"] = {
+        "product_view": {
+            "product_id": {"type": "id", "prefix": "configured_", "min": 1, "max": 1},
+            "category": {"type": "choice", "values": ["configured_category"]},
+            "price": {"type": "float", "min": 9.99, "max": 9.99, "decimals": 2},
+            "in_stock": True,
+        }
+    }
+    dataset = generate_dataset(parse_config(raw))
+    product_view = dataset.sessions[0].events[-1]
+
+    assert product_view.event_type == "product_view"
+    assert product_view.properties == {
+        "product_id": "configured_1",
+        "category": "configured_category",
+        "price": 9.99,
+        "in_stock": True,
+    }
 
 
 def test_returning_visitor_rate_zero_produces_no_returning_visitors() -> None:
