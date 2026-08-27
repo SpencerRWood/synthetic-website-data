@@ -489,6 +489,187 @@ def test_new_behavior_configuration_loads() -> None:
     assert config.page_views.default_delay.shape == 2.0
 
 
+def test_visitor_profile_configuration_loads(tmp_path: Path) -> None:
+    geography_path = tmp_path / "us_geography.csv"
+    geography_path.write_text(
+        "zip_code,state,area_code,population\n45202,OH,513,100\n",
+        encoding="utf-8",
+    )
+    raw = valid_raw_config()
+    raw["visitor_profile"] = {
+        "enabled": True,
+        "signup": {
+            "enabled": True,
+            "enrichment_probability": 0.75,
+            "fields": ["first_name", "last_name", "email"],
+        },
+        "checkout": {
+            "enabled": False,
+            "enrichment_probability": 0.25,
+            "fields": ["email", "phone"],
+        },
+        "geography": {
+            "enabled": True,
+            "distribution_file": str(geography_path),
+        },
+    }
+
+    config = parse_config(raw)
+
+    assert config.visitor_profile.enabled is True
+    assert config.visitor_profile.signup.enrichment_probability == 0.75
+    assert config.visitor_profile.checkout.enabled is False
+    assert config.visitor_profile.checkout.fields == frozenset({"email", "phone"})
+    assert config.visitor_profile.geography.distribution_file == geography_path
+
+
+def test_visitor_profile_defaults_to_disabled() -> None:
+    config = parse_config(valid_raw_config())
+
+    assert config.visitor_profile.enabled is False
+    assert config.visitor_profile.signup.enabled is True
+    assert config.visitor_profile.checkout.enabled is True
+    assert config.visitor_profile.geography.enabled is False
+
+
+@pytest.mark.parametrize(
+    ("phase_name", "probability"),
+    [("signup", -0.1), ("signup", 1.1), ("checkout", -0.1), ("checkout", 1.1)],
+)
+def test_visitor_profile_probability_bounds(
+    phase_name: str,
+    probability: float,
+) -> None:
+    raw = valid_raw_config()
+    raw["visitor_profile"] = {
+        "enabled": True,
+        phase_name: {"enrichment_probability": probability},
+    }
+
+    with pytest.raises(ConfigurationError, match="enrichment_probability"):
+        parse_config(raw)
+
+
+def test_visitor_profile_rejects_unsupported_fields() -> None:
+    raw = valid_raw_config()
+    raw["visitor_profile"] = {
+        "enabled": True,
+        "signup": {"fields": ["first_name", "annual_income"]},
+    }
+
+    with pytest.raises(ConfigurationError, match="unsupported fields"):
+        parse_config(raw)
+
+
+def test_geography_can_be_disabled_with_no_distribution_file() -> None:
+    raw = valid_raw_config()
+    raw["visitor_profile"] = {
+        "enabled": True,
+        "geography": {"enabled": False},
+    }
+
+    config = parse_config(raw)
+
+    assert config.visitor_profile.geography.distribution_file is None
+
+
+def test_missing_geography_distribution_file_fails_validation(tmp_path: Path) -> None:
+    raw = valid_raw_config()
+    raw["visitor_profile"] = {
+        "enabled": True,
+        "geography": {
+            "enabled": True,
+            "distribution_file": str(tmp_path / "missing.csv"),
+        },
+    }
+
+    with pytest.raises(ConfigurationError, match="distribution_file"):
+        parse_config(raw)
+
+
+def test_visitor_profile_distribution_path_resolves_relative_to_config(
+    tmp_path: Path,
+) -> None:
+    distribution_dir = tmp_path / "distributions"
+    distribution_dir.mkdir()
+    geography_path = distribution_dir / "us_geography.csv"
+    geography_path.write_text(
+        "zip_code,state,area_code,population\n45202,OH,513,100\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+dataset:
+  start_date: "2026-01-01"
+  end_date: "2026-01-02"
+  timezone: "America/New_York"
+website:
+  entry_page: home
+  terminal_pages:
+    - checkout
+  graph:
+    home:
+      checkout: 1.0
+    checkout: {}
+arrivals:
+  maximum_rate_per_hour: 10
+  annual_growth_rate: 0.0
+  hourly_intensity:
+    0: 0.1
+    1: 0.1
+    2: 0.1
+    3: 0.1
+    4: 0.1
+    5: 0.1
+    6: 0.1
+    7: 0.1
+    8: 0.1
+    9: 0.1
+    10: 0.1
+    11: 0.1
+    12: 0.1
+    13: 0.1
+    14: 0.1
+    15: 0.1
+    16: 0.1
+    17: 0.1
+    18: 0.1
+    19: 0.1
+    20: 0.1
+    21: 0.1
+    22: 0.1
+    23: 0.1
+  weekday_intensity:
+    monday: 1.0
+    tuesday: 1.0
+    wednesday: 1.0
+    thursday: 1.0
+    friday: 0.9
+    saturday: 0.45
+    sunday: 0.35
+sessions:
+  drop_off_probability: 0.3
+  max_page_views: 30
+page_views:
+  delay:
+    distribution: gamma
+    shape: 2.0
+    scale_seconds: 5.0
+visitor_profile:
+  enabled: true
+  geography:
+    enabled: true
+    distribution_file: distributions/us_geography.csv
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.visitor_profile.geography.distribution_file == geography_path
+
+
 def test_invalid_transition_probabilities_are_rejected() -> None:
     raw = valid_raw_config()
     home = _graph(raw)["home"]

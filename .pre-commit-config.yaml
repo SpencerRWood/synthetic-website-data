@@ -8,6 +8,8 @@ repos:
           - main
 
       - id: check-added-large-files
+        args:
+          - --maxkb=750
       - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml

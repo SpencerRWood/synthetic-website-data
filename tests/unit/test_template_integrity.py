@@ -25,6 +25,7 @@ def test_project_metadata_describes_package() -> None:
     assert project["requires-python"] == ">=3.14"
     assert project["dependencies"] == [
         "alembic>=1.17.2",
+        "Faker>=38.2.0",
         "psycopg>=3.3.2",
         "PyYAML>=6.0.3",
         "SQLAlchemy>=2.0.45",

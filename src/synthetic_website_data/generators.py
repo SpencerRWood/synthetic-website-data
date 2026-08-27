@@ -25,6 +25,7 @@ from .models import (
     SyntheticDataset,
     Visitor,
 )
+from .profile import ProfileEnricher
 from .traversal import traverse_session_pages
 
 
@@ -46,13 +47,15 @@ def generate_session(
     return session
 
 
-def generate_event(
+def generate_event(  # noqa: PLR0913
     session: Session,
     page: str,
     timestamp: datetime,
     rng: Random,
     *,
     config: GeneratorConfig | None = None,
+    visitor: Visitor | None = None,
+    profile_enricher: ProfileEnricher | None = None,
 ) -> Event:
     event_id = _deterministic_uuid(rng)
     event_type = event_type_for_page(page, config.website if config else None)
@@ -73,6 +76,8 @@ def generate_event(
     )
 
     session.events.append(event)
+    if visitor is not None and profile_enricher is not None:
+        profile_enricher.enrich_event(visitor, event)
     return event
 
 
@@ -160,6 +165,10 @@ def properties_for_event(
 def generate_dataset(config: GeneratorConfig) -> SyntheticDataset:
     """Generate a hierarchical synthetic website event-stream dataset."""
     rng = Random(config.dataset.random_seed)  # noqa: S311
+    profile_enricher = ProfileEnricher(
+        config.visitor_profile,
+        config.dataset.random_seed,
+    )
     dataset = SyntheticDataset()
     pending_return_visitors: list[Visitor] = []
     arrivals = generate_arrivals(
@@ -193,6 +202,8 @@ def generate_dataset(config: GeneratorConfig) -> SyntheticDataset:
                 timestamp,
                 rng,
                 config=config,
+                visitor=visitor,
+                profile_enricher=profile_enricher,
             )
         session.session_end_time = session.events[-1].timestamp
 
