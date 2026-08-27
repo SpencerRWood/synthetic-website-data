@@ -51,8 +51,19 @@ class Session:
 
 
 @dataclass
+class VisitorProfile:
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    shipping_state: str | None = None
+    shipping_postal_code: str | None = None
+
+
+@dataclass
 class Visitor:
     visitor_id: UUID
+    profile: VisitorProfile = field(default_factory=VisitorProfile)
     sessions: list[Session] = field(default_factory=list)
 
 

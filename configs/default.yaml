@@ -64,3 +64,26 @@ page_views:
 visitors:
   returning_visitor_rate: 0.25
   max_sessions_per_visitor: 5
+
+visitor_profile:
+  enabled: true
+  signup:
+    enabled: true
+    enrichment_probability: 1.0
+    fields:
+      - first_name
+      - last_name
+      - email
+  checkout:
+    enabled: true
+    enrichment_probability: 1.0
+    fields:
+      - first_name
+      - last_name
+      - email
+      - phone
+      - shipping_state
+      - shipping_postal_code
+  geography:
+    enabled: true
+    distribution_file: distributions/us_geography.csv

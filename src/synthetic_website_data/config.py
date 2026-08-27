@@ -105,6 +105,39 @@ class VisitorsConfig:
     max_sessions_per_visitor: int = 1
 
 
+SUPPORTED_VISITOR_PROFILE_FIELDS = frozenset(
+    {
+        "first_name",
+        "last_name",
+        "email",
+        "phone",
+        "shipping_state",
+        "shipping_postal_code",
+    }
+)
+
+
+@dataclass(frozen=True)
+class VisitorProfilePhaseConfig:
+    enabled: bool
+    enrichment_probability: float
+    fields: frozenset[str]
+
+
+@dataclass(frozen=True)
+class VisitorProfileGeographyConfig:
+    enabled: bool
+    distribution_file: Path | None = None
+
+
+@dataclass(frozen=True)
+class VisitorProfileConfig:
+    enabled: bool
+    signup: VisitorProfilePhaseConfig
+    checkout: VisitorProfilePhaseConfig
+    geography: VisitorProfileGeographyConfig
+
+
 PropertySpecKind = Literal["choice", "float", "id", "integer", "literal"]
 
 
@@ -132,6 +165,7 @@ class GeneratorConfig:
     sessions: SessionsConfig
     page_views: PageViewsConfig
     visitors: VisitorsConfig
+    visitor_profile: VisitorProfileConfig
     event_properties: EventPropertiesConfig
 
 
@@ -141,6 +175,7 @@ def load_config(path: str | Path) -> GeneratorConfig:
     raw = _load_yaml_mapping(config_path, "configuration")
     raw = _resolve_website_graph_reference(raw, config_path.parent)
     raw = _resolve_event_properties_reference(raw, config_path.parent)
+    raw = _resolve_visitor_profile_reference(raw, config_path.parent)
     return parse_config(raw)
 
 
@@ -230,6 +265,32 @@ def _resolve_event_properties_reference(
     return raw
 
 
+def _resolve_visitor_profile_reference(
+    raw: dict[str, Any],
+    base_path: Path,
+) -> dict[str, Any]:
+    raw_profile = raw.get("visitor_profile")
+    if raw_profile is None:
+        return raw
+    if not isinstance(raw_profile, dict):
+        raise ConfigurationError("visitor_profile must be a mapping")
+    profile = cast("dict[str, Any]", raw_profile)
+    raw_geography = profile.get("geography")
+    if raw_geography is None:
+        return raw
+    if not isinstance(raw_geography, dict):
+        raise ConfigurationError("visitor_profile.geography must be a mapping")
+    geography = cast("dict[str, Any]", raw_geography)
+    distribution_file = geography.get("distribution_file")
+    if distribution_file is None:
+        return raw
+    distribution_path = Path(str(distribution_file))
+    if not distribution_path.is_absolute():
+        distribution_path = base_path / distribution_path
+    geography["distribution_file"] = str(distribution_path)
+    return raw
+
+
 def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
     """Parse and validate raw configuration data."""
     try:
@@ -245,6 +306,7 @@ def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
     sessions = _parse_sessions(_required_mapping(raw, "sessions"))
     page_views = _parse_page_views(_required_mapping(raw, "page_views"))
     visitors = _parse_visitors(raw.get("visitors", {}))
+    visitor_profile = _parse_visitor_profile(raw.get("visitor_profile", {}))
     event_properties = _parse_event_properties(raw.get("event_properties", {}))
 
     return GeneratorConfig(
@@ -254,6 +316,7 @@ def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
         sessions=sessions,
         page_views=page_views,
         visitors=visitors,
+        visitor_profile=visitor_profile,
         event_properties=event_properties,
     )
 
@@ -434,6 +497,110 @@ def _parse_visitors(raw_value: object) -> VisitorsConfig:
     return VisitorsConfig(
         returning_visitor_rate=returning_visitor_rate,
         max_sessions_per_visitor=max_sessions_per_visitor,
+    )
+
+
+def _parse_visitor_profile(raw_value: object) -> VisitorProfileConfig:
+    if raw_value is None:
+        raw_value = {}
+    if not isinstance(raw_value, dict):
+        raise ConfigurationError("visitor_profile must be a mapping")
+    raw = cast("dict[str, Any]", raw_value)
+    enabled = bool(raw.get("enabled", False))
+    signup = _parse_visitor_profile_phase(
+        raw.get("signup", {}),
+        default_fields=frozenset({"first_name", "last_name", "email"}),
+        field_name="visitor_profile.signup",
+    )
+    checkout = _parse_visitor_profile_phase(
+        raw.get("checkout", {}),
+        default_fields=frozenset(SUPPORTED_VISITOR_PROFILE_FIELDS),
+        field_name="visitor_profile.checkout",
+    )
+    geography = _parse_visitor_profile_geography(raw.get("geography", {}))
+    return VisitorProfileConfig(
+        enabled=enabled,
+        signup=signup,
+        checkout=checkout,
+        geography=geography,
+    )
+
+
+def _parse_visitor_profile_phase(
+    raw_value: object,
+    *,
+    default_fields: frozenset[str],
+    field_name: str,
+) -> VisitorProfilePhaseConfig:
+    if raw_value is None:
+        raw_value = {}
+    if not isinstance(raw_value, dict):
+        raise ConfigurationError(f"{field_name} must be a mapping")
+    raw = cast("dict[str, Any]", raw_value)
+    enabled = bool(raw.get("enabled", True))
+    probability = float(raw.get("enrichment_probability", 1.0))
+    if not 0 <= probability <= 1:
+        raise ConfigurationError(
+            f"{field_name}.enrichment_probability must be between 0 and 1"
+        )
+    fields = _parse_visitor_profile_fields(
+        raw.get("fields"),
+        default_fields=default_fields,
+        field_name=f"{field_name}.fields",
+    )
+    return VisitorProfilePhaseConfig(
+        enabled=enabled,
+        enrichment_probability=probability,
+        fields=fields,
+    )
+
+
+def _parse_visitor_profile_fields(
+    raw_value: object,
+    *,
+    default_fields: frozenset[str],
+    field_name: str,
+) -> frozenset[str]:
+    if raw_value is None:
+        return default_fields
+    if not isinstance(raw_value, list):
+        raise ConfigurationError(f"{field_name} must be a list")
+    fields = frozenset(str(field) for field in raw_value)
+    unsupported = fields.difference(SUPPORTED_VISITOR_PROFILE_FIELDS)
+    if unsupported:
+        field_names = ", ".join(sorted(unsupported))
+        raise ConfigurationError(
+            f"{field_name} contains unsupported fields: {field_names}"
+        )
+    return fields
+
+
+def _parse_visitor_profile_geography(
+    raw_value: object,
+) -> VisitorProfileGeographyConfig:
+    if raw_value is None:
+        raw_value = {}
+    if not isinstance(raw_value, dict):
+        raise ConfigurationError("visitor_profile.geography must be a mapping")
+    raw = cast("dict[str, Any]", raw_value)
+    enabled = bool(raw.get("enabled", False))
+    distribution_file_raw = raw.get("distribution_file")
+    distribution_file = None
+    if distribution_file_raw is not None:
+        distribution_file = Path(str(distribution_file_raw))
+    if enabled:
+        if distribution_file is None:
+            raise ConfigurationError(
+                "visitor_profile.geography.distribution_file is required"
+            )
+        if not distribution_file.is_file():
+            raise ConfigurationError(
+                "visitor_profile.geography.distribution_file does not exist: "
+                f"{distribution_file}"
+            )
+    return VisitorProfileGeographyConfig(
+        enabled=enabled,
+        distribution_file=distribution_file,
     )
 
 

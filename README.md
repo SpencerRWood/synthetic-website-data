@@ -1,212 +1,208 @@
-# template-synthetic-data
+# synthetic-website-data
 
-A minimal, typed synthetic data generation template with `uv`, Ruff, mypy, pytest, pre-commit, GitHub Actions, and semantic-release wired together.
+Synthetic website event-stream data generator for local analytics and raw
+PostgreSQL loading experiments.
 
-## Intended Use
-
-Use this template for projects that generate synthetic datasets and scenario-based records. The repository infrastructure is ready
-for local development and CI; the package modules are intentionally thin
-placeholders for project-specific implementation.
-
-## Project Layout
+The simulator generates visitors, sessions, page traversal, event types, and
+event-specific properties from YAML configuration. The raw analytical source is
+the event stream:
 
 ```text
-src/template_synthetic_data/
-  __init__.py
-  py.typed
-  config.py
-  distributions.py
-  generators.py
-  models.py
-  rates.py
-  exporters/
-    __init__.py
-    csv.py
-    json.py
-    parquet.py
-  scenarios/
-    __init__.py
-    example.py
-tests/
-  unit/
-    test_template_integrity.py
-  integration/
+event_id
+visitor_id
+session_id
+timestamp
+event_type
+page
+properties
 ```
 
-Keep reusable Python code under `src/template_synthetic_data/` and tests under `tests/`.
-The `py.typed` marker declares the package as typed.
+Profile and commerce details are emitted inside `properties`; the project does
+not create raw visitor, customer, demographic, or profile tables.
 
-## Local Setup
+## Visitor Profile Lifecycle
 
-Install dependencies into the local environment:
+Visitors begin anonymous. A lightweight profile is attached to each in-memory
+visitor and persists for the lifetime of that visitor across sessions:
+
+```text
+visitor created
+  -> anonymous
+  -> signup
+     -> first_name
+     -> last_name
+     -> email
+  -> checkout/order
+     -> phone
+     -> population-weighted ZIP
+     -> state derived from ZIP
+     -> geographic area code
+```
+
+Enrichment is lazy. Names, emails, phones, ZIP codes, and states are generated
+only when a lifecycle event would make them observable to the website.
+Anonymous page views do not expose profile data. Signup events expose configured
+identity fields. Purchase events expose configured checkout fields while
+preserving existing commerce properties such as `order_id` and `order_value`.
+
+Faker with the `en_US` locale generates synthetic first and last names. Email
+addresses use the generated name and the reserved `example.com` domain. Phone
+numbers use the sampled geographic area code and the fictitious `555-0100`
+through `555-0199` range. Faker is seeded from `dataset.random_seed`, and the
+profile enricher uses its own seeded random stream so identical configs and
+seeds reproduce identical visitor enrichment.
+
+## Geography
+
+Checkout geography is population-weighted by ZIP-like Census ZIP Code
+Tabulation Area records:
+
+```text
+US population distribution
+  -> ZIP code sampled by population
+  -> state from the same ZIP record
+  -> area code from the same geography record
+```
+
+The default checked-in reference file is:
+
+```text
+configs/distributions/us_geography.csv
+```
+
+Expected columns:
+
+```csv
+zip_code,state,area_code,population
+45202,OH,513,15279
+```
+
+The checked-in file contains 33,100 ZIP rows from ReadyAPIs'
+`curated-us-zips` public CSV, keeping only `zip_code`, `state`, and
+`population` from that source. ReadyAPIs publishes population from U.S. Census
+ACS 5-year data and ZIP/state location fields from USPS/SimpleMaps. ZCTAs are
+Census approximations of USPS ZIP Code service areas for statistical analysis,
+so ZIP-level population should be treated as an analytical approximation rather
+than address-level USPS delivery truth.
+
+Area codes are derived by joining the ZIPs to the public GeoInfo Dataset's
+United States NANPA rows by ZIP code and choosing the most common NPA for each
+ZIP. When a ZIP has no direct NPA match, the file uses the most common NPA for
+that state from the same GeoInfo data. The simulator stores only one primary
+area code per ZIP row.
+
+The loader validates that the file exists, required columns are present,
+population weights are non-negative with at least one positive row, ZIP/state
+values are populated, and area codes look like three-digit NANP area codes.
+Weights are normalized implicitly during sampling:
+
+```text
+P(zip) = zip_population / total_population
+```
+
+Geography is descriptive only in this branch. State, ZIP, and area code do not
+change arrival rates, return probability, page traversal, conversion
+probability, product preferences, order values, campaign exposure, or any other
+behavior.
+
+## Configuration
+
+The default configuration loads the website graph from `configs/website.yaml`,
+event property specs from `configs/event_properties.yaml`, and visitor profile
+settings from `configs/default.yaml`:
+
+```yaml
+visitor_profile:
+  enabled: true
+  signup:
+    enabled: true
+    enrichment_probability: 1.0
+    fields:
+      - first_name
+      - last_name
+      - email
+  checkout:
+    enabled: true
+    enrichment_probability: 1.0
+    fields:
+      - first_name
+      - last_name
+      - email
+      - phone
+      - shipping_state
+      - shipping_postal_code
+  geography:
+    enabled: true
+    distribution_file: distributions/us_geography.csv
+```
+
+Supported profile fields are `first_name`, `last_name`, `email`, `phone`,
+`shipping_state`, and `shipping_postal_code`. Unsupported fields such as age,
+income, household size, gender, education, occupation, marital status,
+ethnicity, or political affiliation are rejected rather than inferred.
+
+`enrichment_probability` applies to the lifecycle event as a whole and must be
+between `0` and `1`. Set `visitor_profile.enabled: false` to disable all profile
+enrichment and profile event properties.
+
+Campaign and acquisition fields such as `utm_source`, `utm_medium`,
+`utm_campaign`, `channel`, `referrer`, `device_type`, attribution, adstock, and
+carryover are intentionally out of scope.
+
+## Generate Data
+
+Install dependencies:
 
 ```sh
 uv sync --frozen --group dev
 ```
 
-Install pre-commit hooks:
+Generate CSV and JSON files:
 
 ```sh
-uv run pre-commit install
+uv run python src/main.py configs/default.yaml data
 ```
 
-Run all baseline checks locally:
+Outputs:
+
+```text
+data/visitors.csv
+data/sessions.csv
+data/events.csv
+data/dataset.json
+data/events.json
+```
+
+`events.csv` serializes `properties` as compact JSON for database loading.
+`dataset.json` and `events.json` preserve `properties` as JSON objects.
+
+## PostgreSQL Raw Event Loading
+
+Set `DATABASE_URL`, apply migrations, and load generated events:
+
+```sh
+export DATABASE_URL="postgresql://user:password@host:5432/database"
+uv run alembic upgrade head
+uv run python -m synthetic_website_data.database data/events.csv --replace
+```
+
+The loader validates the exact CSV header:
+
+```text
+event_id,visitor_id,session_id,page,timestamp,event_type,properties
+```
+
+`raw.events.properties` is JSONB, so visitor profile enrichment does not require
+a new Alembic migration.
+
+## Checks
+
+Run the local quality gate:
 
 ```sh
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
 uv run pytest
-uv build
-uv run pre-commit run --all-files
+SKIP=no-commit-to-branch uv run pre-commit run --all-files
 ```
-
-Use Ruff to apply safe fixes:
-
-```sh
-uv run ruff check --fix .
-uv run ruff format .
-```
-
-## PostgreSQL Raw Event Loading
-
-The generator remains independent of PostgreSQL: first generate `events.csv`,
-then load that CSV into the target database when `DATABASE_URL` is available.
-Database credentials belong in environment configuration, not YAML simulation
-configuration.
-
-Apply schema migrations:
-
-```sh
-export DATABASE_URL="postgresql://user:password@host:5432/database"
-uv run alembic upgrade head
-```
-
-Create a future migration:
-
-```sh
-uv run alembic revision --autogenerate -m "description"
-```
-
-Generate CSV files:
-
-```sh
-uv run python src/main.py configs/default.yaml data
-```
-
-The default simulation config keeps rates and behavior in `configs/default.yaml`
-and loads website pages plus the navigation graph from `configs/website.yaml`
-through `website.graph_path`. It also loads event property generation settings
-from `configs/event_properties.yaml` through `event_properties_path`.
-
-Pages map to event types in `configs/website.yaml`:
-
-```yaml
-pages:
-  product_detail:
-    event_type: product_view
-  cart:
-    event_type: add_to_cart
-  order_confirmation:
-    event_type: purchase
-```
-
-Event properties can be configured per event type:
-
-```yaml
-event_properties:
-  add_to_cart:
-    product_id:
-      type: id
-      prefix: sku_
-      min: 1000
-      max: 9999
-    quantity:
-      type: integer
-      min: 1
-      max: 4
-    price:
-      type: float
-      min: 12.0
-      max: 240.0
-      decimals: 2
-    source_label: configured literal value
-```
-
-Supported property spec types are `choice`, `integer`, `float`, `id`, and
-`literal`. Plain scalar YAML values are treated as literals.
-
-Load generated events with the development replace workflow:
-
-```sh
-uv run python -m synthetic_website_data.database data/events.csv --replace
-```
-
-Generate the dataset, apply migrations, delete old `raw.events` rows, and
-reload the newly generated `events.csv` in one step:
-
-```sh
-set -a; source .env; uv run python -m synthetic_website_data.generate_and_load
-```
-
-The VS Code `Run main.py` task runs this same workflow. It requires a local
-`.env` file with `DATABASE_URL` and intentionally replaces `raw.events` every
-time it succeeds.
-
-The loader validates that the CSV header is exactly:
-
-```text
-event_id,visitor_id,session_id,page,timestamp,event_type,properties
-```
-
-It then streams the CSV through psycopg's PostgreSQL `COPY` API into
-`raw.events`. With `--replace`, `TRUNCATE raw.events` and `COPY` run in one
-transaction so a failed load rolls back instead of partially replacing the
-previous dataset. Without `--replace`, the loader appends and lets the
-`event_id` primary key reject duplicates.
-
-Alembic creates only the raw event table:
-
-```text
-raw.events
-  event_id UUID PRIMARY KEY
-  visitor_id UUID NOT NULL
-  session_id UUID NOT NULL
-  page TEXT NOT NULL
-  timestamp TIMESTAMPTZ NOT NULL
-  event_type TEXT NOT NULL
-  properties JSONB NOT NULL
-```
-
-Indexes are intentionally limited to downstream analytics access patterns:
-`visitor_id`, `(session_id, timestamp)`, and `timestamp`.
-
-## Linting, Formatting, And Typing
-
-Ruff and mypy follow the same conventions as the Python library template:
-Python 3.14, `src/` layout, strict mypy, 88-character line length, Ruff import
-sorting, and normal `assert` statements allowed in tests.
-
-## Tests
-
-The initial tests verify template integrity without pretending application
-behavior exists. Add focused unit and integration tests alongside each real
-implementation as the copied project grows.
-
-## Build And Release
-
-The package builds with Hatchling through `uv build`. GitHub Actions validate
-Ruff, formatting, mypy, pytest, pre-commit, and package builds. The release
-workflow uses python-semantic-release with conventional commits and tags like
-`v0.0.1`.
-
-## Copy And Rename
-
-After copying this template, replace these names everywhere:
-
-- project name: `template-synthetic-data`
-- package name: `template_synthetic_data`
-
-
-Then update package metadata in `pyproject.toml`, refresh `uv.lock` with
-`uv lock`, run `uv sync --frozen --group dev`, and run the baseline checks.

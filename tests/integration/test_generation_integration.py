@@ -1,5 +1,9 @@
+import json
+from pathlib import Path
 from random import Random
+from typing import cast
 
+from main import flatten_events
 from synthetic_website_data.arrivals import generate_arrivals
 from synthetic_website_data.config import parse_config
 from synthetic_website_data.generators import generate_dataset
@@ -245,6 +249,129 @@ def test_generated_event_properties_use_configured_specs() -> None:
         "price": 9.99,
         "in_stock": True,
     }
+
+
+def test_profile_enrichment_is_observable_only_at_lifecycle_events(
+    tmp_path: Path,
+) -> None:
+    geography_path = tmp_path / "us_geography.csv"
+    geography_path.write_text(
+        "zip_code,state,area_code,population\n45202,OH,513,100\n",
+        encoding="utf-8",
+    )
+    raw = raw_generation_config()
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["terminal_pages"] = ["order_confirmation"]
+    website["graph"] = {
+        "home": {"signup": 1.0},
+        "signup": {"checkout": 1.0},
+        "checkout": {"order_confirmation": 1.0},
+        "order_confirmation": {},
+    }
+    website["pages"] = {
+        "signup": {"event_type": "newsletter_signup"},
+        "checkout": {"event_type": "begin_checkout"},
+        "order_confirmation": {"event_type": "purchase"},
+    }
+    raw["visitor_profile"] = visitor_profile_raw_config(geography_path)
+    dataset = generate_dataset(parse_config(raw))
+    events_by_type = {event.event_type: event for event in dataset.sessions[0].events}
+
+    page_view = events_by_type["page_view"]
+    signup = events_by_type["newsletter_signup"]
+    begin_checkout = events_by_type["begin_checkout"]
+    purchase = events_by_type["purchase"]
+
+    assert page_view.properties == {}
+    assert set(signup.properties) == {
+        "newsletter_id",
+        "first_name",
+        "last_name",
+        "email",
+    }
+    assert set(begin_checkout.properties) == {"items_count", "cart_value"}
+    assert purchase.properties["shipping_state"] == "OH"
+    assert purchase.properties["shipping_postal_code"] == "45202"
+    assert str(purchase.properties["phone"]).startswith("513-555-")
+    assert purchase.properties["email"] == signup.properties["email"]
+
+
+def test_profile_persists_across_returning_visitor_sessions(tmp_path: Path) -> None:
+    geography_path = tmp_path / "us_geography.csv"
+    geography_path.write_text(
+        "zip_code,state,area_code,population\n45202,OH,513,100\n",
+        encoding="utf-8",
+    )
+    raw = raw_generation_config()
+    raw["visitors"] = {
+        "returning_visitor_rate": 1.0,
+        "max_sessions_per_visitor": 3,
+    }
+    raw["visitor_profile"] = visitor_profile_raw_config(geography_path)
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["terminal_pages"] = ["order_confirmation"]
+    website["graph"] = {
+        "home": {"order_confirmation": 1.0},
+        "order_confirmation": {},
+    }
+    website["pages"] = {
+        "order_confirmation": {"event_type": "purchase"},
+    }
+    dataset = generate_dataset(parse_config(raw))
+    returning_visitor = next(
+        visitor for visitor in dataset.visitors if len(visitor.sessions) > 1
+    )
+    purchases = [
+        event
+        for session in returning_visitor.sessions
+        for event in session.events
+        if event.event_type == "purchase"
+    ]
+
+    assert len(purchases) > 1
+    assert {event.properties["email"] for event in purchases} == {
+        returning_visitor.profile.email
+    }
+    assert {event.properties["shipping_postal_code"] for event in purchases} == {
+        returning_visitor.profile.shipping_postal_code
+    }
+
+
+def test_enriched_properties_survive_csv_json_serialization(tmp_path: Path) -> None:
+    geography_path = tmp_path / "us_geography.csv"
+    geography_path.write_text(
+        "zip_code,state,area_code,population\n45202,OH,513,100\n",
+        encoding="utf-8",
+    )
+    raw = raw_generation_config()
+    raw["visitor_profile"] = visitor_profile_raw_config(geography_path)
+    website = raw["website"]
+    assert isinstance(website, dict)
+    website["terminal_pages"] = ["order_confirmation"]
+    website["graph"] = {
+        "home": {"order_confirmation": 1.0},
+        "order_confirmation": {},
+    }
+    website["pages"] = {"order_confirmation": {"event_type": "purchase"}}
+    dataset = generate_dataset(parse_config(raw))
+
+    rows = flatten_events(dataset, serialize_properties=True)
+    purchase_row = next(row for row in rows if row["event_type"] == "purchase")
+    properties = json.loads(cast("str", purchase_row["properties"]))
+
+    assert set(rows[0]) == {
+        "event_id",
+        "visitor_id",
+        "session_id",
+        "page",
+        "timestamp",
+        "event_type",
+        "properties",
+    }
+    assert properties["shipping_state"] == "OH"
+    assert properties["shipping_postal_code"] == "45202"
 
 
 def test_returning_visitor_rate_zero_produces_no_returning_visitors() -> None:
@@ -536,3 +663,30 @@ def session_ownership_fingerprint(dataset: SyntheticDataset) -> list[tuple[str, 
         (str(session.visitor_id), str(session.session_id))
         for session in dataset.iter_sessions()
     ]
+
+
+def visitor_profile_raw_config(geography_path: Path) -> dict[str, object]:
+    return {
+        "enabled": True,
+        "signup": {
+            "enabled": True,
+            "enrichment_probability": 1.0,
+            "fields": ["first_name", "last_name", "email"],
+        },
+        "checkout": {
+            "enabled": True,
+            "enrichment_probability": 1.0,
+            "fields": [
+                "first_name",
+                "last_name",
+                "email",
+                "phone",
+                "shipping_state",
+                "shipping_postal_code",
+            ],
+        },
+        "geography": {
+            "enabled": True,
+            "distribution_file": str(geography_path),
+        },
+    }
