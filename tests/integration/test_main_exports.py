@@ -89,13 +89,13 @@ page_views:
     with outputs["events_csv"].open(encoding="utf-8", newline="") as file:
         events = list(csv.DictReader(file))
     assert events
-    assert set(events[0]) == {
+    assert list(events[0]) == [
+        "event_id",
         "visitor_id",
         "session_id",
-        "event_id",
         "page",
         "timestamp",
-    }
+    ]
 
     dataset = json.loads(outputs["dataset_json"].read_text(encoding="utf-8"))
     assert dataset

@@ -3,6 +3,7 @@ notebooks/.ipynb_checkpoints/
 notebooks/**/.ipynb_checkpoints/
 notebooks/**/__pycache__/
 notebooks/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -39,9 +40,12 @@ pip-wheel-metadata/
 # Environment variables / secrets
 .env
 .env.*
+!.env.example
 
 # IDEs / editors
 .vscode/
+!.vscode/
+!.vscode/tasks.json
 .idea/
 *.swp
 *.swo

@@ -41,9 +41,9 @@ def session_rows(dataset: SyntheticDataset) -> list[dict[str, object]]:
 def flatten_events(dataset: SyntheticDataset) -> list[dict[str, object]]:
     return [
         {
+            "event_id": str(event.event_id),
             "visitor_id": str(event.visitor_id),
             "session_id": str(event.session_id),
-            "event_id": str(event.event_id),
             "page": event.page,
             "timestamp": event.timestamp.isoformat(),
         }

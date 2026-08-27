@@ -23,7 +23,12 @@ def test_project_metadata_describes_package() -> None:
     assert project["name"] == "synthetic-website-data"
     assert project["description"] == "Synthetic website event-stream data generator."
     assert project["requires-python"] == ">=3.14"
-    assert project["dependencies"] == ["PyYAML>=6.0.3"]
+    assert project["dependencies"] == [
+        "alembic>=1.17.2",
+        "psycopg>=3.3.2",
+        "PyYAML>=6.0.3",
+        "SQLAlchemy>=2.0.45",
+    ]
 
 
 def test_project_declares_typed_src_package() -> None:
