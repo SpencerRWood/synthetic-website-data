@@ -1,0 +1,15 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run main.py",
+      "type": "shell",
+      "command": "set -a; source .env; uv run python -m synthetic_website_data.generate_and_load",
+      "presentation": {
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}

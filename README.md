@@ -68,6 +68,75 @@ uv run ruff check --fix .
 uv run ruff format .
 ```
 
+## PostgreSQL Raw Event Loading
+
+The generator remains independent of PostgreSQL: first generate `events.csv`,
+then load that CSV into the target database when `DATABASE_URL` is available.
+Database credentials belong in environment configuration, not YAML simulation
+configuration.
+
+Apply schema migrations:
+
+```sh
+export DATABASE_URL="postgresql://user:password@host:5432/database"
+uv run alembic upgrade head
+```
+
+Create a future migration:
+
+```sh
+uv run alembic revision --autogenerate -m "description"
+```
+
+Generate CSV files:
+
+```sh
+uv run python src/main.py configs/default.yaml data
+```
+
+Load generated events with the development replace workflow:
+
+```sh
+uv run python -m synthetic_website_data.database data/events.csv --replace
+```
+
+Generate the dataset, apply migrations, delete old `raw.events` rows, and
+reload the newly generated `events.csv` in one step:
+
+```sh
+set -a; source .env; uv run python -m synthetic_website_data.generate_and_load
+```
+
+The VS Code `Run main.py` task runs this same workflow. It requires a local
+`.env` file with `DATABASE_URL` and intentionally replaces `raw.events` every
+time it succeeds.
+
+The loader validates that the CSV header is exactly:
+
+```text
+event_id,visitor_id,session_id,page,timestamp
+```
+
+It then streams the CSV through psycopg's PostgreSQL `COPY` API into
+`raw.events`. With `--replace`, `TRUNCATE raw.events` and `COPY` run in one
+transaction so a failed load rolls back instead of partially replacing the
+previous dataset. Without `--replace`, the loader appends and lets the
+`event_id` primary key reject duplicates.
+
+Alembic creates only the raw event table:
+
+```text
+raw.events
+  event_id UUID PRIMARY KEY
+  visitor_id UUID NOT NULL
+  session_id UUID NOT NULL
+  page TEXT NOT NULL
+  timestamp TIMESTAMPTZ NOT NULL
+```
+
+Indexes are intentionally limited to downstream analytics access patterns:
+`visitor_id`, `(session_id, timestamp)`, and `timestamp`.
+
 ## Linting, Formatting, And Typing
 
 Ruff and mypy follow the same conventions as the Python library template:
