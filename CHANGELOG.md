@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.4.0 (2026-08-27)
+
+### Features
+
+- Add PostgreSQL integration for event data management
+  ([`05a550d`](https://github.com/SpencerRWood/synthetic-website-data/commit/05a550d180360028c9acb9305681d316787bf19a))
+
+
 ## v0.3.0 (2026-08-25)
 
 ### Features
