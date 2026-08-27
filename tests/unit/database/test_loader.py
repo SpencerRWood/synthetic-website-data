@@ -5,12 +5,14 @@ import pytest
 from synthetic_website_data.database import loader
 
 VALID_CSV = (
-    "event_id,visitor_id,session_id,page,timestamp\n"
+    "event_id,visitor_id,session_id,page,timestamp,event_type,properties\n"
     "019a1111-1111-7111-8111-111111111111,"
     "019a2222-2222-7222-8222-222222222222,"
     "019a3333-3333-7333-8333-333333333333,"
     "home,"
-    "2026-01-01T09:00:00-05:00\n"
+    "2026-01-01T09:00:00-05:00,"
+    "page_view,"
+    '"{}"\n'
 )
 
 
@@ -123,7 +125,7 @@ def test_validate_events_csv_header_fails_for_missing_path(tmp_path: Path) -> No
 def test_validate_events_csv_header_fails_for_invalid_header(tmp_path: Path) -> None:
     csv_path = write_events_csv(
         tmp_path / "events.csv",
-        "visitor_id,event_id,session_id,page,timestamp\n",
+        "visitor_id,event_id,session_id,page,timestamp,event_type,properties\n",
     )
 
     with pytest.raises(loader.CsvValidationError, match="invalid events header"):
@@ -137,6 +139,36 @@ def test_validate_events_csv_fails_for_naive_timestamp(tmp_path: Path) -> None:
     )
 
     with pytest.raises(loader.CsvValidationError, match="naive timestamp"):
+        loader.validate_events_csv(csv_path)
+
+
+def test_validate_events_csv_fails_for_empty_event_type(tmp_path: Path) -> None:
+    csv_path = write_events_csv(
+        tmp_path / "events.csv",
+        VALID_CSV.replace("page_view", ""),
+    )
+
+    with pytest.raises(loader.CsvValidationError, match="empty event_type"):
+        loader.validate_events_csv(csv_path)
+
+
+def test_validate_events_csv_fails_for_invalid_properties_json(tmp_path: Path) -> None:
+    csv_path = write_events_csv(
+        tmp_path / "events.csv",
+        VALID_CSV.replace('"{}"', "not-json"),
+    )
+
+    with pytest.raises(loader.CsvValidationError, match="invalid properties JSON"):
+        loader.validate_events_csv(csv_path)
+
+
+def test_validate_events_csv_fails_for_non_object_properties(tmp_path: Path) -> None:
+    csv_path = write_events_csv(
+        tmp_path / "events.csv",
+        VALID_CSV.replace('"{}"', '"[]"'),
+    )
+
+    with pytest.raises(loader.CsvValidationError, match="properties must be"):
         loader.validate_events_csv(csv_path)
 
 

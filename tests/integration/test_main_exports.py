@@ -95,11 +95,21 @@ page_views:
         "session_id",
         "page",
         "timestamp",
+        "event_type",
+        "properties",
     ]
+    assert events[0]["event_type"] == "page_view"
+    assert json.loads(events[0]["properties"]) == {}
 
     dataset = json.loads(outputs["dataset_json"].read_text(encoding="utf-8"))
     assert dataset
     assert "sessions" in dataset[0]
+    assert "event_type" in dataset[0]["sessions"][0]["events"][0]
+    assert dataset[0]["sessions"][0]["events"][0]["properties"] == {}
+
+    events_json = json.loads(outputs["events_json"].read_text(encoding="utf-8"))
+    assert events_json[0]["event_type"] == "page_view"
+    assert events_json[0]["properties"] == {}
 
 
 def test_main_uses_default_config_and_output_dir(

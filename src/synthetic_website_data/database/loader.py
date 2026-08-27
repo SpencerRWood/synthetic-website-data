@@ -1,6 +1,7 @@
 """Bulk-load generated event CSVs into PostgreSQL."""
 
 import csv
+import json
 from collections.abc import Callable
 from datetime import datetime
 from os import PathLike
@@ -14,6 +15,8 @@ EXPECTED_EVENTS_HEADER = (
     "session_id",
     "page",
     "timestamp",
+    "event_type",
+    "properties",
 )
 
 COPY_EVENTS_SQL = """
@@ -22,7 +25,9 @@ COPY raw.events (
     visitor_id,
     session_id,
     page,
-    timestamp
+    timestamp,
+    event_type,
+    properties
 )
 FROM STDIN
 WITH (
@@ -54,6 +59,24 @@ def _validate_timestamp(timestamp: str, *, path: Path, line_number: int) -> None
         )
 
 
+def _validate_event_type(event_type: str, *, path: Path, line_number: int) -> None:
+    if not event_type:
+        raise CsvValidationError(f"{path} line {line_number} has empty event_type.")
+
+
+def _validate_properties(properties: str, *, path: Path, line_number: int) -> None:
+    try:
+        parsed_properties = json.loads(properties)
+    except json.JSONDecodeError as error:
+        raise CsvValidationError(
+            f"{path} line {line_number} has invalid properties JSON."
+        ) from error
+    if not isinstance(parsed_properties, dict):
+        raise CsvValidationError(
+            f"{path} line {line_number} properties must be a JSON object."
+        )
+
+
 def validate_events_csv(csv_path: str | PathLike[str]) -> tuple[str, ...]:
     """Validate the events CSV shape needed before database mutation."""
     path = Path(csv_path)
@@ -80,6 +103,16 @@ def validate_events_csv(csv_path: str | PathLike[str]) -> tuple[str, ...]:
         for line_number, row in enumerate(dict_reader, start=2):
             _validate_timestamp(
                 row["timestamp"],
+                path=path,
+                line_number=line_number,
+            )
+            _validate_event_type(
+                row["event_type"],
+                path=path,
+                line_number=line_number,
+            )
+            _validate_properties(
+                row["properties"],
                 path=path,
                 line_number=line_number,
             )

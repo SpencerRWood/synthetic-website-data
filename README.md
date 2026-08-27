@@ -94,6 +94,48 @@ Generate CSV files:
 uv run python src/main.py configs/default.yaml data
 ```
 
+The default simulation config keeps rates and behavior in `configs/default.yaml`
+and loads website pages plus the navigation graph from `configs/website.yaml`
+through `website.graph_path`. It also loads event property generation settings
+from `configs/event_properties.yaml` through `event_properties_path`.
+
+Pages map to event types in `configs/website.yaml`:
+
+```yaml
+pages:
+  product_detail:
+    event_type: product_view
+  cart:
+    event_type: add_to_cart
+  order_confirmation:
+    event_type: purchase
+```
+
+Event properties can be configured per event type:
+
+```yaml
+event_properties:
+  add_to_cart:
+    product_id:
+      type: id
+      prefix: sku_
+      min: 1000
+      max: 9999
+    quantity:
+      type: integer
+      min: 1
+      max: 4
+    price:
+      type: float
+      min: 12.0
+      max: 240.0
+      decimals: 2
+    source_label: configured literal value
+```
+
+Supported property spec types are `choice`, `integer`, `float`, `id`, and
+`literal`. Plain scalar YAML values are treated as literals.
+
 Load generated events with the development replace workflow:
 
 ```sh
@@ -114,7 +156,7 @@ time it succeeds.
 The loader validates that the CSV header is exactly:
 
 ```text
-event_id,visitor_id,session_id,page,timestamp
+event_id,visitor_id,session_id,page,timestamp,event_type,properties
 ```
 
 It then streams the CSV through psycopg's PostgreSQL `COPY` API into
@@ -132,6 +174,8 @@ raw.events
   session_id UUID NOT NULL
   page TEXT NOT NULL
   timestamp TIMESTAMPTZ NOT NULL
+  event_type TEXT NOT NULL
+  properties JSONB NOT NULL
 ```
 
 Indexes are intentionally limited to downstream analytics access patterns:

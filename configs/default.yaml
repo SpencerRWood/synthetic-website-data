@@ -4,55 +4,15 @@ dataset:
   timezone: "America/New_York"
   random_seed: 42
 
+event_properties_path: event_properties.yaml
+
 website:
+  graph_path: website.yaml
   entry_page: home
   terminal_pages:
     - order_confirmation
   conversion_pages:
     - order_confirmation
-  pages:
-    home:
-      drop_off_probability: 0.25
-    products:
-      drop_off_probability: 0.10
-      delay:
-        shape: 2.5
-        scale_seconds: 7.0
-    product_detail:
-      drop_off_probability: 0.08
-      delay:
-        shape: 3.0
-        scale_seconds: 10.0
-    cart:
-      drop_off_probability: 0.12
-    checkout:
-      drop_off_probability: 0.15
-    order_confirmation:
-      drop_off_probability: 1.0
-  graph:
-    home:
-      products: 0.50
-      blog: 0.30
-      contact: 0.20
-    products:
-      product_detail: 0.50
-      cart: 0.30
-      home: 0.20
-    product_detail:
-      products: 0.30
-      cart: 0.50
-      home: 0.20
-    blog:
-      home: 0.70
-      products: 0.30
-    contact:
-      home: 1.00
-    cart:
-      checkout: 0.60
-      products: 0.40
-    checkout:
-      order_confirmation: 1.00
-    order_confirmation: {}
 
 arrivals:
   maximum_rate_per_hour: 50

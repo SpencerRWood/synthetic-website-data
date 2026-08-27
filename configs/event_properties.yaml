@@ -1,0 +1,93 @@
+event_properties:
+  product_view:
+    product_id:
+      type: id
+      prefix: sku_
+      min: 1000
+      max: 9999
+    category:
+      type: choice
+      values:
+        - apparel
+        - accessories
+        - footwear
+        - home
+        - outdoor
+    price:
+      type: float
+      min: 12.0
+      max: 240.0
+      decimals: 2
+
+  add_to_cart:
+    product_id:
+      type: id
+      prefix: sku_
+      min: 1000
+      max: 9999
+    quantity:
+      type: integer
+      min: 1
+      max: 4
+    price:
+      type: float
+      min: 12.0
+      max: 240.0
+      decimals: 2
+    cart_value:
+      type: float
+      min: 12.0
+      max: 960.0
+      decimals: 2
+
+  search:
+    search_query:
+      type: choice
+      values:
+        - running shoes
+        - linen shirt
+        - travel backpack
+        - desk lamp
+        - water bottle
+        - wireless headphones
+    results_count:
+      type: integer
+      min: 0
+      max: 120
+
+  begin_checkout:
+    items_count:
+      type: integer
+      min: 1
+      max: 6
+    cart_value:
+      type: float
+      min: 24.0
+      max: 450.0
+      decimals: 2
+
+  purchase:
+    order_id:
+      type: id
+      prefix: ord_
+      min: 1000000
+      max: 9999999
+    items_count:
+      type: integer
+      min: 1
+      max: 6
+    order_value:
+      type: float
+      min: 24.0
+      max: 450.0
+      decimals: 2
+
+  form_submit:
+    form_id:
+      type: choice
+      values:
+        - contact_form
+        - lead_form
+
+  newsletter_signup:
+    newsletter_id: default
