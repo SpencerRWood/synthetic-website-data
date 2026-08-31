@@ -28,6 +28,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+  "gitpython>=3.1.61",
   "coverage[toml]",
   "jupyter",
   "matplotlib",
