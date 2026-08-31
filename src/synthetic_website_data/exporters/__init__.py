@@ -1,3 +1,3 @@
-"""Dataset export placeholders."""
+"""Dataset export helpers."""
 
 __all__: tuple[str, ...] = ()

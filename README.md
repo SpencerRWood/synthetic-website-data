@@ -1,29 +1,27 @@
-# template-synthetic-data
+# synthetic-website-data
 
-A minimal, typed synthetic data generation template with `uv`, Ruff, mypy, pytest, pre-commit, GitHub Actions, and semantic-release wired together.
+Typed synthetic website event-stream data generation with configurable traffic,
+session traversal, event properties, file exports, and PostgreSQL raw event
+loading.
 
 ## Intended Use
 
-Use this template for projects that generate synthetic datasets and scenario-based records. The repository infrastructure is ready
-for local development and CI; the package modules are intentionally thin
-placeholders for project-specific implementation.
+Use this project to generate deterministic synthetic website analytics data for
+local development, demos, and downstream warehouse or dbt workflows.
 
 ## Project Layout
 
 ```text
-src/template_synthetic_data/
+src/synthetic_website_data/
   __init__.py
   py.typed
   config.py
-  distributions.py
   generators.py
   models.py
-  rates.py
   exporters/
     __init__.py
     csv.py
     json.py
-    parquet.py
   scenarios/
     __init__.py
     example.py
@@ -33,7 +31,7 @@ tests/
   integration/
 ```
 
-Keep reusable Python code under `src/template_synthetic_data/` and tests under `tests/`.
+Keep reusable Python code under `src/synthetic_website_data/` and tests under `tests/`.
 The `py.typed` marker declares the package as typed.
 
 ## Local Setup
@@ -183,30 +181,18 @@ Indexes are intentionally limited to downstream analytics access patterns:
 
 ## Linting, Formatting, And Typing
 
-Ruff and mypy follow the same conventions as the Python library template:
+Ruff and mypy follow the same conventions as the Python library baseline:
 Python 3.14, `src/` layout, strict mypy, 88-character line length, Ruff import
 sorting, and normal `assert` statements allowed in tests.
 
 ## Tests
 
-The initial tests verify template integrity without pretending application
-behavior exists. Add focused unit and integration tests alongside each real
-implementation as the copied project grows.
+Tests cover configuration validation, traffic arrival simulation, website
+traversal, event generation, file export, and PostgreSQL loader validation.
 
 ## Build And Release
 
-The package builds with Hatchling through `uv build`. GitHub Actions validate
-Ruff, formatting, mypy, pytest, pre-commit, and package builds. The release
-workflow uses python-semantic-release with conventional commits and tags like
-`v0.0.1`.
-
-## Copy And Rename
-
-After copying this template, replace these names everywhere:
-
-- project name: `template-synthetic-data`
-- package name: `template_synthetic_data`
-
-
-Then update package metadata in `pyproject.toml`, refresh `uv.lock` with
-`uv lock`, run `uv sync --frozen --group dev`, and run the baseline checks.
+The package builds with Hatchling through `uv build`. The release workflow
+validates mypy, pytest, and pre-commit before python-semantic-release runs with
+conventional commits and tags like `v0.5.0`. Ruff linting and formatting run
+through pre-commit.
