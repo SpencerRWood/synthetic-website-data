@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from math import inf, nan
 from pathlib import Path
@@ -240,6 +241,40 @@ page_views:
     assert product_properties["price"].decimals == 1
 
 
+def test_valid_configuration_loads_campaigns_from_relative_file(
+    tmp_path: Path,
+) -> None:
+    raw = valid_raw_config()
+    raw["campaigns_path"] = "campaigns.yaml"
+    (tmp_path / "campaigns.yaml").write_text(
+        json.dumps(
+            {
+                "campaigns": [
+                    {
+                        "campaign_id": "paid_search_test",
+                        "channel": "paid_search",
+                        "start_date": "2026-01-01",
+                        "end_date": "2026-01-02",
+                        "daily_spend": 100.0,
+                        "adstock_decay": 0.5,
+                        "saturation": 250.0,
+                        "maximum_visitor_lift": 50.0,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    config = load_config(config_path)
+
+    assert len(config.campaigns) == 1
+    assert config.campaigns[0].campaign_id == "paid_search_test"
+    assert config.campaigns[0].channel == "paid_search"
+
+
 def test_configuration_rejects_inline_graph_and_graph_path(tmp_path: Path) -> None:
     (tmp_path / "website.yaml").write_text("graph:\n  home: {}\n", encoding="utf-8")
     config_path = tmp_path / "config.yaml"
@@ -305,6 +340,23 @@ page_views:
 """,
         encoding="utf-8",
     )
+
+    with pytest.raises(ConfigurationError, match="cannot both be configured"):
+        load_config(config_path)
+
+
+def test_configuration_rejects_inline_campaigns_and_campaigns_path(
+    tmp_path: Path,
+) -> None:
+    raw = valid_raw_config()
+    raw["campaigns_path"] = "campaigns.yaml"
+    raw["campaigns"] = []
+    (tmp_path / "campaigns.yaml").write_text(
+        json.dumps({"campaigns": []}),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
 
     with pytest.raises(ConfigurationError, match="cannot both be configured"):
         load_config(config_path)

@@ -47,12 +47,21 @@ class Session:
     session_id: UUID
     session_start_time: datetime
     session_end_time: datetime | None = None
+    campaign_id: str | None = None
+    channel: str | None = None
+    utm_source: str | None = None
+    utm_medium: str | None = None
+    utm_campaign: str | None = None
     events: list[Event] = field(default_factory=list)
 
 
 @dataclass
 class Visitor:
     visitor_id: UUID
+    acquisition_source: str | None = None
+    acquisition_campaign_id: str | None = None
+    acquisition_utm_medium: str | None = None
+    acquisition_utm_campaign: str | None = None
     sessions: list[Session] = field(default_factory=list)
 
 

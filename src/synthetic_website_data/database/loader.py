@@ -3,7 +3,7 @@
 import csv
 import json
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 from os import PathLike
 from pathlib import Path
 
@@ -19,6 +19,19 @@ EXPECTED_EVENTS_HEADER = (
     "properties",
 )
 
+EXPECTED_CAMPAIGNS_HEADER = (
+    "date_day",
+    "campaign_id",
+    "channel",
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "daily_spend",
+    "actual_adstock",
+    "actual_saturated_demand",
+    "expected_incremental_visitors",
+)
+
 COPY_EVENTS_SQL = """
 COPY raw.events (
     event_id,
@@ -28,6 +41,26 @@ COPY raw.events (
     timestamp,
     event_type,
     properties
+)
+FROM STDIN
+WITH (
+    FORMAT CSV,
+    HEADER TRUE
+)
+"""
+
+COPY_CAMPAIGNS_SQL = """
+COPY raw.campaigns (
+    date_day,
+    campaign_id,
+    channel,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    daily_spend,
+    actual_adstock,
+    actual_saturated_demand,
+    expected_incremental_visitors
 )
 FROM STDIN
 WITH (
@@ -77,6 +110,79 @@ def _validate_properties(properties: str, *, path: Path, line_number: int) -> No
         )
 
 
+def _validate_date(value: str, *, path: Path, line_number: int) -> None:
+    try:
+        date.fromisoformat(value)
+    except ValueError as error:
+        raise CsvValidationError(
+            f"{path} line {line_number} has invalid date_day {value!r}."
+        ) from error
+
+
+def _validate_required_text(
+    value: str,
+    column: str,
+    *,
+    path: Path,
+    line_number: int,
+) -> None:
+    if not value:
+        raise CsvValidationError(f"{path} line {line_number} has empty {column}.")
+
+
+def _validate_non_negative_number(
+    value: str,
+    column: str,
+    *,
+    path: Path,
+    line_number: int,
+) -> None:
+    try:
+        number = float(value)
+    except ValueError as error:
+        raise CsvValidationError(
+            f"{path} line {line_number} has invalid {column} {value!r}."
+        ) from error
+    if number < 0:
+        raise CsvValidationError(
+            f"{path} line {line_number} has negative {column} {value!r}."
+        )
+
+
+def _validate_campaign_row(
+    row: dict[str, str],
+    *,
+    path: Path,
+    line_number: int,
+) -> None:
+    _validate_date(row["date_day"], path=path, line_number=line_number)
+    for column in (
+        "campaign_id",
+        "channel",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+    ):
+        _validate_required_text(
+            row[column],
+            column,
+            path=path,
+            line_number=line_number,
+        )
+    for column in (
+        "daily_spend",
+        "actual_adstock",
+        "actual_saturated_demand",
+        "expected_incremental_visitors",
+    ):
+        _validate_non_negative_number(
+            row[column],
+            column,
+            path=path,
+            line_number=line_number,
+        )
+
+
 def validate_events_csv(csv_path: str | PathLike[str]) -> tuple[str, ...]:
     """Validate the events CSV shape needed before database mutation."""
     path = Path(csv_path)
@@ -120,9 +226,44 @@ def validate_events_csv(csv_path: str | PathLike[str]) -> tuple[str, ...]:
     return header
 
 
+def validate_campaigns_csv(csv_path: str | PathLike[str]) -> tuple[str, ...]:
+    """Validate the campaigns CSV shape needed before database mutation."""
+    path = Path(csv_path)
+    if not path.is_file():
+        raise FileNotFoundError(path)
+
+    with path.open(encoding="utf-8", newline="") as file:
+        reader = csv.reader(file)
+        try:
+            header = tuple(next(reader))
+        except StopIteration as error:
+            raise CsvValidationError(
+                f"{path} is empty; expected a campaigns header."
+            ) from error
+
+        if header != EXPECTED_CAMPAIGNS_HEADER:
+            expected = ",".join(EXPECTED_CAMPAIGNS_HEADER)
+            actual = ",".join(header) if header else "<missing>"
+            raise CsvValidationError(
+                f"{path} has invalid campaigns header {actual!r}; "
+                f"expected {expected!r}."
+            )
+
+        dict_reader = csv.DictReader(file, fieldnames=header)
+        for line_number, row in enumerate(dict_reader, start=2):
+            _validate_campaign_row(row, path=path, line_number=line_number)
+
+    return header
+
+
 def validate_events_csv_header(csv_path: str | PathLike[str]) -> tuple[str, ...]:
     """Validate and return the header from an events CSV."""
     return validate_events_csv(csv_path)
+
+
+def validate_campaigns_csv_header(csv_path: str | PathLike[str]) -> tuple[str, ...]:
+    """Validate and return the header from a campaigns CSV."""
+    return validate_campaigns_csv(csv_path)
 
 
 def load_events_csv(
@@ -156,6 +297,53 @@ def load_events_csv(
             with (
                 path.open("r", encoding="utf-8", newline="") as file,
                 cursor.copy(COPY_EVENTS_SQL) as copy,
+            ):
+                for chunk in file:
+                    copy.write(chunk)
+
+            row_count = cursor.rowcount
+
+        if progress is not None:
+            progress("Committing database transaction")
+        connection.commit()
+    except Exception:
+        if progress is not None:
+            progress("Rolling back database transaction")
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+    return int(row_count) if row_count is not None else -1
+
+
+def load_campaigns_csv(
+    csv_path: str | PathLike[str],
+    *,
+    replace: bool = False,
+    progress: Callable[[str], None] | None = None,
+) -> int:
+    """Load a generated campaigns CSV into raw.campaigns with PostgreSQL COPY."""
+    path = Path(csv_path)
+    if progress is not None:
+        progress(f"Validating campaigns CSV: {path}")
+    validate_campaigns_csv(path)
+
+    if progress is not None:
+        progress("Opening PostgreSQL connection")
+    connection = connect()
+    try:
+        with connection.cursor() as cursor:
+            if replace:
+                if progress is not None:
+                    progress("Deleting old rows from raw.campaigns")
+                cursor.execute("TRUNCATE raw.campaigns")
+
+            if progress is not None:
+                progress("Uploading campaigns CSV with PostgreSQL COPY")
+            with (
+                path.open("r", encoding="utf-8", newline="") as file,
+                cursor.copy(COPY_CAMPAIGNS_SQL) as copy,
             ):
                 for chunk in file:
                     copy.write(chunk)

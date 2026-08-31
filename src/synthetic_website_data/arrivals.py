@@ -1,12 +1,29 @@
 """Non-homogeneous Poisson arrival generation."""
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from random import Random
 
-from .config import SECONDS_PER_YEAR, WEEKDAY_NAMES, ArrivalsConfig
+from .campaigns import (
+    CampaignEffect,
+    CampaignSchedule,
+    campaign_incremental_rate_per_hour,
+    maximum_campaign_rate_per_hour,
+)
+from .config import SECONDS_PER_YEAR, WEEKDAY_NAMES, ArrivalsConfig, CampaignConfig
 
 SECONDS_PER_HOUR = 3600
+
+
+@dataclass(frozen=True)
+class Arrival:
+    timestamp: datetime
+    campaign_id: str | None = None
+    channel: str | None = None
+    utm_source: str | None = None
+    utm_medium: str | None = None
+    utm_campaign: str | None = None
 
 
 def generate_arrivals(
@@ -15,12 +32,48 @@ def generate_arrivals(
     config: ArrivalsConfig,
     rng: Random,
 ) -> list[datetime]:
-    """Generate ordered NHPP arrivals in ``[start, end)`` by thinning."""
-    arrivals: list[datetime] = []
+    """Generate ordered NHPP arrival timestamps in ``[start, end)`` by thinning."""
+    return [
+        arrival.timestamp
+        for arrival in generate_arrival_records(
+            start=start,
+            end=end,
+            config=config,
+            rng=rng,
+        )
+    ]
 
-    for current in _homogeneous_arrivals(start, end, config.maximum_rate_per_hour, rng):
-        if rng.random() <= effective_intensity(current, start, end, config):
-            arrivals.append(current)
+
+def generate_arrival_records(
+    start: datetime,
+    end: datetime,
+    config: ArrivalsConfig,
+    rng: Random,
+    campaigns: tuple[CampaignConfig, ...] = (),
+) -> list[Arrival]:
+    """Generate ordered NHPP arrivals with optional campaign provenance."""
+    arrivals: list[Arrival] = []
+    maximum_rate = config.maximum_rate_per_hour + maximum_campaign_rate_per_hour(
+        campaigns
+    )
+    campaign_schedule = CampaignSchedule.build(campaigns, start, end)
+
+    for current in _homogeneous_arrivals(start, end, maximum_rate, rng):
+        baseline_rate = arrival_rate_per_hour(current, start, end, config)
+        campaign_effects = campaign_schedule.effects_for_day(current.date())
+        campaign_rate = campaign_schedule.incremental_rate_per_hour(current)
+        rate = baseline_rate + campaign_rate
+        if rng.random() <= rate / maximum_rate:
+            arrivals.append(
+                Arrival(
+                    timestamp=current,
+                    **_choose_campaign_source(
+                        baseline_rate,
+                        campaign_effects,
+                        rng,
+                    ),
+                )
+            )
 
     return arrivals
 
@@ -89,6 +142,19 @@ def arrival_rate_per_hour(
     )
 
 
+def combined_arrival_rate_per_hour(
+    timestamp: datetime,
+    start: datetime,
+    end: datetime,
+    config: ArrivalsConfig,
+    campaigns: tuple[CampaignConfig, ...] = (),
+) -> float:
+    """Return baseline plus additive campaign-driven visitor arrival rate."""
+    return arrival_rate_per_hour(timestamp, start, end, config) + (
+        campaign_incremental_rate_per_hour(timestamp, campaigns, start, end)
+    )
+
+
 def _homogeneous_arrivals(
     start: datetime,
     end: datetime,
@@ -102,3 +168,42 @@ def _homogeneous_arrivals(
         if current >= end:
             return
         yield current
+
+
+def _choose_campaign_source(
+    baseline_rate: float,
+    effects: tuple[CampaignEffect, ...],
+    rng: Random,
+) -> dict[str, str | None]:
+    total_rate = baseline_rate + sum(
+        effect.incremental_visitors / 24.0 for effect in effects
+    )
+    if total_rate <= 0:
+        return _empty_campaign_source()
+
+    threshold = rng.random() * total_rate
+    if threshold < baseline_rate:
+        return _empty_campaign_source()
+
+    cumulative = baseline_rate
+    for effect in effects:
+        cumulative += effect.incremental_visitors / 24.0
+        if threshold <= cumulative:
+            return {
+                "campaign_id": effect.campaign_id,
+                "channel": effect.channel,
+                "utm_source": effect.utm_source,
+                "utm_medium": effect.utm_medium,
+                "utm_campaign": effect.utm_campaign,
+            }
+    return _empty_campaign_source()
+
+
+def _empty_campaign_source() -> dict[str, str | None]:
+    return {
+        "campaign_id": None,
+        "channel": None,
+        "utm_source": None,
+        "utm_medium": None,
+        "utm_campaign": None,
+    }

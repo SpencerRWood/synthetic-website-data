@@ -15,6 +15,14 @@ VALID_CSV = (
     '"{}"\n'
 )
 
+VALID_CAMPAIGNS_CSV = (
+    "date_day,campaign_id,channel,utm_source,utm_medium,utm_campaign,"
+    "daily_spend,actual_adstock,actual_saturated_demand,"
+    "expected_incremental_visitors\n"
+    "2026-01-01,summer_search,paid_search,google,cpc,summer_search,"
+    "100.0,100.0,0.5,120.0\n"
+)
+
 
 class PathLikeEventsCsv:
     def __init__(self, path: Path) -> None:
@@ -62,7 +70,7 @@ class FakeCursor:
         self.operations.append(sql)
 
     def copy(self, sql: str) -> FakeCopy:
-        assert "COPY raw.events" in sql
+        assert "COPY raw." in sql
         self.operations.append("copy")
         return FakeCopy(self.operations, fail=self.fail_copy)
 
@@ -90,6 +98,11 @@ def write_events_csv(path: Path, content: str = VALID_CSV) -> Path:
     return path
 
 
+def write_campaigns_csv(path: Path, content: str = VALID_CAMPAIGNS_CSV) -> Path:
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
 def patch_connection(
     monkeypatch: pytest.MonkeyPatch,
     connection: FakeConnection,
@@ -102,6 +115,17 @@ def test_validate_events_csv_header_accepts_expected_header(tmp_path: Path) -> N
     csv_path = write_events_csv(tmp_path / "events.csv")
 
     assert loader.validate_events_csv_header(csv_path) == loader.EXPECTED_EVENTS_HEADER
+
+
+def test_validate_campaigns_csv_header_accepts_expected_header(
+    tmp_path: Path,
+) -> None:
+    csv_path = write_campaigns_csv(tmp_path / "campaigns.csv")
+
+    assert (
+        loader.validate_campaigns_csv_header(csv_path)
+        == loader.EXPECTED_CAMPAIGNS_HEADER
+    )
 
 
 def test_load_events_csv_accepts_path_like_object(
@@ -117,9 +141,54 @@ def test_load_events_csv_accepts_path_like_object(
     assert connection.operations[-2:] == ["commit", "close"]
 
 
+def test_load_campaigns_csv_accepts_path_like_object(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    csv_path = write_campaigns_csv(tmp_path / "campaigns.csv")
+    connection = patch_connection(monkeypatch, FakeConnection())
+
+    row_count = loader.load_campaigns_csv(PathLikeEventsCsv(csv_path))
+
+    assert row_count == 1
+    assert connection.operations[-2:] == ["commit", "close"]
+
+
 def test_validate_events_csv_header_fails_for_missing_path(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         loader.validate_events_csv_header(tmp_path / "missing.csv")
+
+
+def test_validate_campaigns_csv_header_fails_for_invalid_header(
+    tmp_path: Path,
+) -> None:
+    csv_path = write_campaigns_csv(
+        tmp_path / "campaigns.csv",
+        "campaign_id,date_day\n",
+    )
+
+    with pytest.raises(loader.CsvValidationError, match="invalid campaigns header"):
+        loader.validate_campaigns_csv_header(csv_path)
+
+
+def test_validate_campaigns_csv_fails_for_invalid_date(tmp_path: Path) -> None:
+    csv_path = write_campaigns_csv(
+        tmp_path / "campaigns.csv",
+        VALID_CAMPAIGNS_CSV.replace("2026-01-01", "not-a-date"),
+    )
+
+    with pytest.raises(loader.CsvValidationError, match="invalid date_day"):
+        loader.validate_campaigns_csv(csv_path)
+
+
+def test_validate_campaigns_csv_fails_for_negative_metric(tmp_path: Path) -> None:
+    csv_path = write_campaigns_csv(
+        tmp_path / "campaigns.csv",
+        VALID_CAMPAIGNS_CSV.replace("100.0,100.0", "-1.0,100.0"),
+    )
+
+    with pytest.raises(loader.CsvValidationError, match="negative daily_spend"):
+        loader.validate_campaigns_csv(csv_path)
 
 
 def test_validate_events_csv_header_fails_for_invalid_header(tmp_path: Path) -> None:
@@ -183,6 +252,20 @@ def test_replace_mode_truncates_before_copy(
 
     assert connection.operations.index(
         "TRUNCATE raw.events"
+    ) < connection.operations.index("copy")
+
+
+def test_campaigns_replace_mode_truncates_before_copy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    csv_path = write_campaigns_csv(tmp_path / "campaigns.csv")
+    connection = patch_connection(monkeypatch, FakeConnection())
+
+    loader.load_campaigns_csv(csv_path, replace=True)
+
+    assert connection.operations.index(
+        "TRUNCATE raw.campaigns"
     ) < connection.operations.index("copy")
 
 
@@ -266,5 +349,9 @@ def test_copy_failure_is_not_hidden(
 def test_copy_sql_uses_required_columns() -> None:
     for column in loader.EXPECTED_EVENTS_HEADER:
         assert column in loader.COPY_EVENTS_SQL
+    for column in loader.EXPECTED_CAMPAIGNS_HEADER:
+        assert column in loader.COPY_CAMPAIGNS_SQL
     assert "FORMAT CSV" in loader.COPY_EVENTS_SQL
     assert "HEADER TRUE" in loader.COPY_EVENTS_SQL
+    assert "FORMAT CSV" in loader.COPY_CAMPAIGNS_SQL
+    assert "HEADER TRUE" in loader.COPY_CAMPAIGNS_SQL

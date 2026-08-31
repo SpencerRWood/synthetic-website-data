@@ -79,6 +79,21 @@ class ArrivalsConfig:
 
 
 @dataclass(frozen=True)
+class CampaignConfig:
+    campaign_id: str
+    channel: str
+    start: datetime
+    end: datetime
+    daily_spend: float
+    adstock_decay: float
+    saturation: float
+    maximum_visitor_lift: float
+    utm_source: str
+    utm_medium: str
+    utm_campaign: str
+
+
+@dataclass(frozen=True)
 class SessionsConfig:
     default_drop_off_probability: float
     max_page_views: int
@@ -129,6 +144,7 @@ class GeneratorConfig:
     dataset: DatasetConfig
     website: WebsiteConfig
     arrivals: ArrivalsConfig
+    campaigns: tuple[CampaignConfig, ...]
     sessions: SessionsConfig
     page_views: PageViewsConfig
     visitors: VisitorsConfig
@@ -141,6 +157,7 @@ def load_config(path: str | Path) -> GeneratorConfig:
     raw = _load_yaml_mapping(config_path, "configuration")
     raw = _resolve_website_graph_reference(raw, config_path.parent)
     raw = _resolve_event_properties_reference(raw, config_path.parent)
+    raw = _resolve_campaigns_reference(raw, config_path.parent)
     return parse_config(raw)
 
 
@@ -230,6 +247,32 @@ def _resolve_event_properties_reference(
     return raw
 
 
+def _resolve_campaigns_reference(
+    raw: dict[str, Any],
+    base_path: Path,
+) -> dict[str, Any]:
+    campaigns_path = raw.pop("campaigns_path", None)
+    if campaigns_path is None:
+        return raw
+    if "campaigns" in raw:
+        raise ConfigurationError(
+            "campaigns and campaigns_path cannot both be configured"
+        )
+
+    campaigns_config_path = Path(str(campaigns_path))
+    if not campaigns_config_path.is_absolute():
+        campaigns_config_path = base_path / campaigns_config_path
+    campaigns_config = _load_yaml_mapping(
+        campaigns_config_path,
+        "campaigns configuration",
+    )
+    campaigns = _required(campaigns_config, "campaigns")
+    if not isinstance(campaigns, list):
+        raise ConfigurationError("campaigns must be a list")
+    raw["campaigns"] = campaigns
+    return raw
+
+
 def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
     """Parse and validate raw configuration data."""
     try:
@@ -242,6 +285,7 @@ def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
     dataset = _parse_dataset(_required_mapping(raw, "dataset"), timezone)
     website = _parse_website(_required_mapping(raw, "website"))
     arrivals = _parse_arrivals(_required_mapping(raw, "arrivals"), dataset)
+    campaigns = _parse_campaigns(raw.get("campaigns", []), timezone)
     sessions = _parse_sessions(_required_mapping(raw, "sessions"))
     page_views = _parse_page_views(_required_mapping(raw, "page_views"))
     visitors = _parse_visitors(raw.get("visitors", {}))
@@ -251,6 +295,7 @@ def parse_config(raw: dict[str, Any]) -> GeneratorConfig:
         dataset=dataset,
         website=website,
         arrivals=arrivals,
+        campaigns=campaigns,
         sessions=sessions,
         page_views=page_views,
         visitors=visitors,
@@ -391,6 +436,101 @@ def _parse_arrivals(raw: dict[str, Any], dataset: DatasetConfig) -> ArrivalsConf
         weekday_intensity=weekday_intensities,
         annual_growth_rate=annual_growth_rate,
     )
+
+
+def _parse_campaigns(  # noqa: PLR0912
+    raw_value: object,
+    timezone: ZoneInfo,
+) -> tuple[CampaignConfig, ...]:
+    if raw_value is None:
+        return ()
+    if not isinstance(raw_value, list):
+        raise ConfigurationError("campaigns must be a list")
+
+    campaigns: list[CampaignConfig] = []
+    seen_campaign_ids: set[str] = set()
+    for index, raw_campaign in enumerate(raw_value):
+        if not isinstance(raw_campaign, dict):
+            raise ConfigurationError("campaigns.* must be a mapping")
+        raw = cast("dict[str, Any]", raw_campaign)
+        field_prefix = f"campaigns.{index}"
+
+        campaign_id = str(_required(raw, "campaign_id"))
+        if not campaign_id:
+            raise ConfigurationError(f"{field_prefix}.campaign_id must not be empty")
+        if campaign_id in seen_campaign_ids:
+            raise ConfigurationError("campaigns.campaign_id values must be unique")
+        seen_campaign_ids.add(campaign_id)
+
+        channel = str(_required(raw, "channel"))
+        if not channel:
+            raise ConfigurationError(f"{field_prefix}.channel must not be empty")
+
+        start = _parse_datetime(
+            _required(raw, "start_date"),
+            timezone,
+            f"{field_prefix}.start_date",
+        )
+        end = _parse_datetime(
+            _required(raw, "end_date"),
+            timezone,
+            f"{field_prefix}.end_date",
+        )
+        if start > end:
+            raise ConfigurationError(
+                f"{field_prefix}.start_date must be on or before end_date"
+            )
+
+        daily_spend = float(_required_one_of(raw, "daily_spend", "daily_budget"))
+        adstock_decay = float(_required_one_of(raw, "adstock_decay", "decay"))
+        saturation = float(_required(raw, "saturation"))
+        maximum_visitor_lift = float(
+            _required_one_of(
+                raw,
+                "maximum_visitor_lift",
+                "maximum_lift",
+            )
+        )
+        utm_source = str(raw.get("utm_source", channel))
+        utm_medium = str(raw.get("utm_medium", channel))
+        utm_campaign = str(raw.get("utm_campaign", campaign_id))
+
+        if daily_spend < 0:
+            raise ConfigurationError(f"{field_prefix}.daily_spend must be >= 0")
+        if not 0 <= adstock_decay < 1:
+            raise ConfigurationError(
+                f"{field_prefix}.adstock_decay must be between 0 and 1"
+            )
+        if saturation <= 0:
+            raise ConfigurationError(f"{field_prefix}.saturation must be > 0")
+        if maximum_visitor_lift < 0:
+            raise ConfigurationError(
+                f"{field_prefix}.maximum_visitor_lift must be >= 0"
+            )
+        if not utm_source:
+            raise ConfigurationError(f"{field_prefix}.utm_source must not be empty")
+        if not utm_medium:
+            raise ConfigurationError(f"{field_prefix}.utm_medium must not be empty")
+        if not utm_campaign:
+            raise ConfigurationError(f"{field_prefix}.utm_campaign must not be empty")
+
+        campaigns.append(
+            CampaignConfig(
+                campaign_id=campaign_id,
+                channel=channel,
+                start=start,
+                end=end,
+                daily_spend=daily_spend,
+                adstock_decay=adstock_decay,
+                saturation=saturation,
+                maximum_visitor_lift=maximum_visitor_lift,
+                utm_source=utm_source,
+                utm_medium=utm_medium,
+                utm_campaign=utm_campaign,
+            )
+        )
+
+    return tuple(campaigns)
 
 
 def _parse_sessions(raw: dict[str, Any]) -> SessionsConfig:

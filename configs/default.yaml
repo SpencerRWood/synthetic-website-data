@@ -5,6 +5,7 @@ dataset:
   random_seed: 42
 
 event_properties_path: event_properties.yaml
+campaigns_path: campaigns.yaml
 
 website:
   graph_path: website.yaml
