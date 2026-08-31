@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.6.0 (2026-08-31)
+
+### Features
+
+- Add campaign-driven visitor generation
+  ([`cc777cd`](https://github.com/SpencerRWood/synthetic-website-data/commit/cc777cd901c2728f8c45c74901168262506b308e))
+
+
 ## v0.5.0 (2026-08-27)
 
 ### Features
