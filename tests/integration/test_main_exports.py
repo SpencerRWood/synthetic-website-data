@@ -81,6 +81,7 @@ page_views:
         "visitors_csv",
         "sessions_csv",
         "events_csv",
+        "campaigns_csv",
         "dataset_json",
         "events_json",
     }
@@ -110,6 +111,10 @@ page_views:
     events_json = json.loads(outputs["events_json"].read_text(encoding="utf-8"))
     assert events_json[0]["event_type"] == "page_view"
     assert events_json[0]["properties"] == {}
+
+    with outputs["campaigns_csv"].open(encoding="utf-8", newline="") as file:
+        campaigns = list(csv.DictReader(file))
+    assert campaigns == []
 
 
 def test_main_uses_default_config_and_output_dir(

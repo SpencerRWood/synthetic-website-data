@@ -1,0 +1,23 @@
+campaigns:
+  - campaign_id: paid_search_spring_launch
+    channel: paid_search
+    utm_source: google
+    utm_medium: cpc
+    utm_campaign: paid_search_spring_launch
+    start_date: "2026-03-01"
+    end_date: "2026-03-31"
+    daily_spend: 350.00
+    adstock_decay: 0.35
+    saturation: 900.00
+    maximum_visitor_lift: 180
+  - campaign_id: display_awareness_spring
+    channel: display
+    utm_source: google_display_network
+    utm_medium: display
+    utm_campaign: display_awareness_spring
+    start_date: "2026-03-15"
+    end_date: "2026-04-15"
+    daily_budget: 225.00
+    adstock_decay: 0.60
+    saturation: 1400.00
+    maximum_visitor_lift: 120

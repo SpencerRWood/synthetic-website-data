@@ -4,7 +4,7 @@ from datetime import datetime
 from random import Random
 from uuid import UUID
 
-from .arrivals import generate_arrivals
+from .arrivals import Arrival, generate_arrival_records
 from .config import (
     EventPropertiesConfig,
     EventPropertySpec,
@@ -28,19 +28,39 @@ from .models import (
 from .traversal import traverse_session_pages
 
 
-def generate_visitor(rng: Random) -> Visitor:
-    return Visitor(visitor_id=_deterministic_uuid(rng))
+def generate_visitor(
+    rng: Random,
+    *,
+    acquisition_source: str | None = None,
+    acquisition_campaign_id: str | None = None,
+    acquisition_utm_medium: str | None = None,
+    acquisition_utm_campaign: str | None = None,
+) -> Visitor:
+    return Visitor(
+        visitor_id=_deterministic_uuid(rng),
+        acquisition_source=acquisition_source,
+        acquisition_campaign_id=acquisition_campaign_id,
+        acquisition_utm_medium=acquisition_utm_medium,
+        acquisition_utm_campaign=acquisition_utm_campaign,
+    )
 
 
 def generate_session(
     visitor: Visitor,
     session_start_time: datetime,
     rng: Random,
+    *,
+    campaign_source: Arrival | None = None,
 ) -> Session:
     session = Session(
         visitor_id=visitor.visitor_id,
         session_id=_deterministic_uuid(rng),
         session_start_time=session_start_time,
+        campaign_id=campaign_source.campaign_id if campaign_source else None,
+        channel=campaign_source.channel if campaign_source else None,
+        utm_source=campaign_source.utm_source if campaign_source else None,
+        utm_medium=campaign_source.utm_medium if campaign_source else None,
+        utm_campaign=campaign_source.utm_campaign if campaign_source else None,
     )
     visitor.sessions.append(session)
     return session
@@ -57,6 +77,15 @@ def generate_event(
     event_id = _deterministic_uuid(rng)
     event_type = event_type_for_page(page, config.website if config else None)
     property_rng = Random(event_id.int)  # noqa: S311
+    properties = properties_for_event(
+        event_type,
+        page,
+        property_rng,
+        config.event_properties if config else None,
+    )
+    if event_type == EVENT_TYPE_PAGE_VIEW:
+        properties.update(_campaign_properties_for_session(session))
+
     event = Event(
         event_id=event_id,
         visitor_id=session.visitor_id,
@@ -64,12 +93,7 @@ def generate_event(
         page=page,
         timestamp=timestamp,
         event_type=event_type,
-        properties=properties_for_event(
-            event_type,
-            page,
-            property_rng,
-            config.event_properties if config else None,
-        ),
+        properties=properties,
     )
 
     session.events.append(event)
@@ -162,11 +186,12 @@ def generate_dataset(config: GeneratorConfig) -> SyntheticDataset:
     rng = Random(config.dataset.random_seed)  # noqa: S311
     dataset = SyntheticDataset()
     pending_return_visitors: list[Visitor] = []
-    arrivals = generate_arrivals(
+    arrivals = generate_arrival_records(
         start=config.dataset.start,
         end=config.dataset.end,
         config=config.arrivals,
         rng=rng,
+        campaigns=config.campaigns,
     )
 
     for arrival in arrivals:
@@ -177,13 +202,18 @@ def generate_dataset(config: GeneratorConfig) -> SyntheticDataset:
             config=config,
             rng=rng,
         )
-        session = generate_session(visitor, arrival, rng)
+        session = generate_session(
+            visitor,
+            arrival.timestamp,
+            rng,
+            campaign_source=arrival,
+        )
         for page, timestamp in traverse_session_pages(
             website=config.website,
             page_view_config=config.page_views,
             sessions=config.sessions,
             max_page_views=config.sessions.max_page_views,
-            start_time=arrival,
+            start_time=arrival.timestamp,
             end_time=config.dataset.end,
             rng=rng,
         ):
@@ -203,7 +233,7 @@ def _assign_visitor(
     *,
     dataset: SyntheticDataset,
     pending_return_visitors: list[Visitor],
-    arrival: datetime,
+    arrival: Arrival,
     config: GeneratorConfig,
     rng: Random,
 ) -> Visitor:
@@ -211,12 +241,12 @@ def _assign_visitor(
         config.visitors.returning_visitor_rate == 0
         or config.visitors.max_sessions_per_visitor == 1
     ):
-        return _create_visitor(dataset, rng)
+        return _create_visitor(dataset, rng, arrival=arrival)
 
     eligible_pending_visitors = [
         visitor
         for visitor in pending_return_visitors
-        if _visitor_can_receive_session(visitor, arrival, config)
+        if _visitor_can_receive_session(visitor, arrival.timestamp, config)
     ]
     if eligible_pending_visitors:
         visitor = rng.choice(eligible_pending_visitors)
@@ -227,7 +257,7 @@ def _assign_visitor(
         visitor
         for visitor in dataset.visitors
         if len(visitor.sessions) > 1
-        and _visitor_can_receive_session(visitor, arrival, config)
+        and _visitor_can_receive_session(visitor, arrival.timestamp, config)
     ]
     if (
         eligible_returning_visitors
@@ -235,14 +265,25 @@ def _assign_visitor(
     ):
         return rng.choice(eligible_returning_visitors)
 
-    visitor = _create_visitor(dataset, rng)
+    visitor = _create_visitor(dataset, rng, arrival=arrival)
     if rng.random() < config.visitors.returning_visitor_rate:
         pending_return_visitors.append(visitor)
     return visitor
 
 
-def _create_visitor(dataset: SyntheticDataset, rng: Random) -> Visitor:
-    visitor = generate_visitor(rng)
+def _create_visitor(
+    dataset: SyntheticDataset,
+    rng: Random,
+    *,
+    arrival: Arrival | None = None,
+) -> Visitor:
+    visitor = generate_visitor(
+        rng,
+        acquisition_source=arrival.channel if arrival is not None else None,
+        acquisition_campaign_id=arrival.campaign_id if arrival is not None else None,
+        acquisition_utm_medium=arrival.utm_medium if arrival is not None else None,
+        acquisition_utm_campaign=arrival.utm_campaign if arrival is not None else None,
+    )
     dataset.visitors.append(visitor)
     return visitor
 
@@ -263,6 +304,21 @@ def _visitor_can_receive_session(
 
 def _deterministic_uuid(rng: Random) -> UUID:
     return UUID(int=rng.getrandbits(128), version=4)
+
+
+def _campaign_properties_for_session(session: Session) -> dict[str, object]:
+    properties: dict[str, object] = {}
+    if session.utm_source is not None:
+        properties["utm_source"] = session.utm_source
+    if session.utm_medium is not None:
+        properties["utm_medium"] = session.utm_medium
+    if session.utm_campaign is not None:
+        properties["utm_campaign"] = session.utm_campaign
+    if session.campaign_id is not None:
+        properties["campaign_id"] = session.campaign_id
+    if session.channel is not None:
+        properties["channel"] = session.channel
+    return properties
 
 
 def _normalize_page_name(page: str) -> str:
