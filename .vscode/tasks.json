@@ -2,9 +2,9 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Run main.py",
+      "label": "Generate and load PostgreSQL",
       "type": "shell",
-      "command": "set -a; source .env; uv run python -m synthetic_website_data.generate_and_load",
+      "command": "set -a; source .env; uv run synthetic-website-data generate --load",
       "presentation": {
         "panel": "shared",
         "clear": true

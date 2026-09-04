@@ -26,6 +26,9 @@ dependencies = [
   "SQLAlchemy>=2.0.45",
 ]
 
+[project.scripts]
+synthetic-website-data = "synthetic_website_data.cli:main"
+
 [dependency-groups]
 dev = [
   "gitpython>=3.1.61",

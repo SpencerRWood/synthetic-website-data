@@ -89,7 +89,16 @@ uv run alembic revision --autogenerate -m "description"
 Generate CSV files:
 
 ```sh
-uv run python src/main.py configs/default.yaml data
+synthetic-website-data generate
+```
+
+The installed CLI is entirely non-interactive. Set paths with flags or
+environment variables (flags take precedence):
+
+```sh
+export SYNTHETIC_WEBSITE_DATA_CONFIG=configs/default.yaml
+export SYNTHETIC_WEBSITE_DATA_OUTPUT_DIR=data
+synthetic-website-data generate --config configs/demo.yaml --output-dir demo-data
 ```
 
 The default simulation config keeps rates and behavior in `configs/default.yaml`
@@ -144,11 +153,17 @@ Generate the dataset, apply migrations, delete old raw rows, and reload the
 newly generated `events.csv`, `campaigns.csv`, and `website.csv` in one step:
 
 ```sh
-set -a; source .env; uv run python -m synthetic_website_data.generate_and_load
+export DATABASE_URL="postgresql://user:password@host:5432/database"
+synthetic-website-data generate --load
 ```
 
-The VS Code `Run main.py` task runs this same workflow. It requires a local
-`.env` file with `DATABASE_URL` and intentionally replaces `raw.events`,
+`synthetic-website-data generate-and-load` is an equivalent explicit command.
+Both loading commands require `DATABASE_URL`; they do not read credentials from
+YAML or prompt for them.
+
+The VS Code `Generate and load PostgreSQL` task runs this same workflow. It
+requires a local `.env` file with `DATABASE_URL` and intentionally replaces
+`raw.events`,
 `raw.campaigns`, and `raw.website` every time it succeeds. `raw.website` is a
 directed adjacency list of the configured site graph:
 

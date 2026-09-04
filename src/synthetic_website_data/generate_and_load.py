@@ -7,11 +7,15 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 
-from main import DEFAULT_CONFIG_PATH, DEFAULT_OUTPUT_DIR, generate_and_export
 from synthetic_website_data.database.loader import (
     load_campaigns_csv,
     load_events_csv,
     load_website_csv,
+)
+from synthetic_website_data.generation import (
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_OUTPUT_DIR,
+    generate_and_export,
 )
 
 
