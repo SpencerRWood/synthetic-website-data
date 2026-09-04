@@ -66,6 +66,47 @@ uv run ruff check --fix .
 uv run ruff format .
 ```
 
+## Docker
+
+Build an image containing the installed CLI:
+
+```sh
+docker build -t synthetic-website-data .
+```
+
+Generated files are written to `/data`, which is declared as a Docker volume so
+they are never stored in the container's writable filesystem. Bind-mount a host
+directory to retain the exports:
+
+```sh
+mkdir -p data
+docker run --rm -v "$(pwd)/data:/data" synthetic-website-data
+```
+
+The image defaults to `synthetic-website-data generate`. Pass another CLI
+command or options after the image name:
+
+```sh
+docker run --rm -v "$(pwd)/data:/data" synthetic-website-data \
+  generate --config /app/configs/default.yaml --output-dir /data
+```
+
+For PostgreSQL loading, pass the existing `DATABASE_URL` configuration through
+the environment. When PostgreSQL runs in another Compose service, use its
+service hostname rather than `localhost`:
+
+```sh
+docker run --rm \
+  -e DATABASE_URL="postgresql://user:password@postgres:5432/database" \
+  -v "$(pwd)/data:/data" \
+  synthetic-website-data generate-and-load
+```
+
+`DATABASE_URL` is required only by `generate --load` and
+`generate-and-load`. You can override the packaged simulation configuration
+and output mount with `SYNTHETIC_WEBSITE_DATA_CONFIG` and
+`SYNTHETIC_WEBSITE_DATA_OUTPUT_DIR`, respectively.
+
 ## PostgreSQL Raw Event Loading
 
 The generator remains independent of PostgreSQL: first generate `events.csv`,
