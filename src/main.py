@@ -23,6 +23,11 @@ CAMPAIGN_ROW_FIELDS = [
     "actual_saturated_demand",
     "expected_incremental_visitors",
 ]
+WEBSITE_ROW_FIELDS = [
+    "from_page",
+    "to_page",
+    "transition_probability",
+]
 
 
 def visitor_rows(dataset: SyntheticDataset) -> list[dict[str, object]]:
@@ -159,6 +164,19 @@ def campaign_rows(config: GeneratorConfig) -> list[dict[str, object]]:
     ]
 
 
+def website_rows(config: GeneratorConfig) -> list[dict[str, object]]:
+    """Return the configured directed website graph as relational edge rows."""
+    return [
+        {
+            "from_page": from_page,
+            "to_page": to_page,
+            "transition_probability": round(probability, 6),
+        }
+        for from_page, destinations in sorted(config.website.graph.items())
+        for to_page, probability in sorted(destinations.items())
+    ]
+
+
 def generate_and_export(
     config_path: str | Path,
     output_dir: str | Path = "data",
@@ -173,6 +191,7 @@ def generate_and_export(
         "sessions_csv": destination / "sessions.csv",
         "events_csv": destination / "events.csv",
         "campaigns_csv": destination / "campaigns.csv",
+        "website_csv": destination / "website.csv",
         "dataset_json": destination / "dataset.json",
         "events_json": destination / "events.json",
     }
@@ -186,6 +205,11 @@ def generate_and_export(
         campaign_rows(config),
         outputs["campaigns_csv"],
         CAMPAIGN_ROW_FIELDS,
+    )
+    export_csv_with_fields(
+        website_rows(config),
+        outputs["website_csv"],
+        WEBSITE_ROW_FIELDS,
     )
     export_json(hierarchical_dataset_rows(dataset), outputs["dataset_json"])
     export_json(flatten_events(dataset), outputs["events_json"])

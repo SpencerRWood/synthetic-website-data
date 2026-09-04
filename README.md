@@ -140,16 +140,26 @@ Load generated events with the development replace workflow:
 uv run python -m synthetic_website_data.database data/events.csv --replace
 ```
 
-Generate the dataset, apply migrations, delete old `raw.events` rows, and
-reload the newly generated `events.csv` in one step:
+Generate the dataset, apply migrations, delete old raw rows, and reload the
+newly generated `events.csv`, `campaigns.csv`, and `website.csv` in one step:
 
 ```sh
 set -a; source .env; uv run python -m synthetic_website_data.generate_and_load
 ```
 
 The VS Code `Run main.py` task runs this same workflow. It requires a local
-`.env` file with `DATABASE_URL` and intentionally replaces `raw.events` every
-time it succeeds.
+`.env` file with `DATABASE_URL` and intentionally replaces `raw.events`,
+`raw.campaigns`, and `raw.website` every time it succeeds. `raw.website` is a
+directed adjacency list of the configured site graph:
+
+```text
+from_page,to_page,transition_probability
+home,products,0.5
+products,cart,0.3
+```
+
+Use it as a dbt source for the expected navigation graph, and derive observed
+session-to-session transitions from `raw.events` for a Sankey or funnel model.
 
 The loader validates that the CSV header is exactly:
 
@@ -163,7 +173,7 @@ transaction so a failed load rolls back instead of partially replacing the
 previous dataset. Without `--replace`, the loader appends and lets the
 `event_id` primary key reject duplicates.
 
-Alembic creates only the raw event table:
+Alembic creates raw source tables including:
 
 ```text
 raw.events
@@ -174,6 +184,14 @@ raw.events
   timestamp TIMESTAMPTZ NOT NULL
   event_type TEXT NOT NULL
   properties JSONB NOT NULL
+```
+
+```text
+raw.website
+  from_page TEXT NOT NULL
+  to_page TEXT NOT NULL
+  transition_probability NUMERIC NOT NULL
+  PRIMARY KEY (from_page, to_page)
 ```
 
 Indexes are intentionally limited to downstream analytics access patterns:

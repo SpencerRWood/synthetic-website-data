@@ -49,3 +49,14 @@ campaigns = Table(
     Index("ix_raw_campaigns_date_day", "date_day"),
     schema="raw",
 )
+
+website = Table(
+    "website",
+    metadata,
+    Column("from_page", Text, nullable=False),
+    Column("to_page", Text, nullable=False),
+    Column("transition_probability", Numeric, nullable=False),
+    PrimaryKeyConstraint("from_page", "to_page", name="pk_raw_website"),
+    Index("ix_raw_website_from_page", "from_page"),
+    schema="raw",
+)

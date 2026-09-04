@@ -23,6 +23,8 @@ VALID_CAMPAIGNS_CSV = (
     "100.0,100.0,0.5,120.0\n"
 )
 
+VALID_WEBSITE_CSV = "from_page,to_page,transition_probability\nhome,products,0.5\n"
+
 
 class PathLikeEventsCsv:
     def __init__(self, path: Path) -> None:
@@ -103,6 +105,11 @@ def write_campaigns_csv(path: Path, content: str = VALID_CAMPAIGNS_CSV) -> Path:
     return path
 
 
+def write_website_csv(path: Path, content: str = VALID_WEBSITE_CSV) -> Path:
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
 def patch_connection(
     monkeypatch: pytest.MonkeyPatch,
     connection: FakeConnection,
@@ -125,6 +132,14 @@ def test_validate_campaigns_csv_header_accepts_expected_header(
     assert (
         loader.validate_campaigns_csv_header(csv_path)
         == loader.EXPECTED_CAMPAIGNS_HEADER
+    )
+
+
+def test_validate_website_csv_header_accepts_expected_header(tmp_path: Path) -> None:
+    csv_path = write_website_csv(tmp_path / "website.csv")
+
+    assert (
+        loader.validate_website_csv_header(csv_path) == loader.EXPECTED_WEBSITE_HEADER
     )
 
 
@@ -179,6 +194,18 @@ def test_validate_campaigns_csv_fails_for_invalid_date(tmp_path: Path) -> None:
 
     with pytest.raises(loader.CsvValidationError, match="invalid date_day"):
         loader.validate_campaigns_csv(csv_path)
+
+
+def test_validate_website_csv_fails_for_out_of_range_probability(
+    tmp_path: Path,
+) -> None:
+    csv_path = write_website_csv(
+        tmp_path / "website.csv",
+        VALID_WEBSITE_CSV.replace("0.5", "1.1"),
+    )
+
+    with pytest.raises(loader.CsvValidationError, match="out-of-range"):
+        loader.validate_website_csv(csv_path)
 
 
 def test_validate_campaigns_csv_fails_for_negative_metric(tmp_path: Path) -> None:
@@ -269,6 +296,20 @@ def test_campaigns_replace_mode_truncates_before_copy(
     ) < connection.operations.index("copy")
 
 
+def test_website_replace_mode_truncates_before_copy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    csv_path = write_website_csv(tmp_path / "website.csv")
+    connection = patch_connection(monkeypatch, FakeConnection())
+
+    loader.load_website_csv(csv_path, replace=True)
+
+    assert connection.operations.index(
+        "TRUNCATE raw.website"
+    ) < connection.operations.index("copy")
+
+
 def test_replace_mode_reports_progress(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -351,7 +392,11 @@ def test_copy_sql_uses_required_columns() -> None:
         assert column in loader.COPY_EVENTS_SQL
     for column in loader.EXPECTED_CAMPAIGNS_HEADER:
         assert column in loader.COPY_CAMPAIGNS_SQL
+    for column in loader.EXPECTED_WEBSITE_HEADER:
+        assert column in loader.COPY_WEBSITE_SQL
     assert "FORMAT CSV" in loader.COPY_EVENTS_SQL
     assert "HEADER TRUE" in loader.COPY_EVENTS_SQL
     assert "FORMAT CSV" in loader.COPY_CAMPAIGNS_SQL
     assert "HEADER TRUE" in loader.COPY_CAMPAIGNS_SQL
+    assert "FORMAT CSV" in loader.COPY_WEBSITE_SQL
+    assert "HEADER TRUE" in loader.COPY_WEBSITE_SQL

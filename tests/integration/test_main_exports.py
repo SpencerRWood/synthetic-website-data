@@ -82,6 +82,7 @@ page_views:
         "sessions_csv",
         "events_csv",
         "campaigns_csv",
+        "website_csv",
         "dataset_json",
         "events_json",
     }
@@ -115,6 +116,21 @@ page_views:
     with outputs["campaigns_csv"].open(encoding="utf-8", newline="") as file:
         campaigns = list(csv.DictReader(file))
     assert campaigns == []
+
+    with outputs["website_csv"].open(encoding="utf-8", newline="") as file:
+        website = list(csv.DictReader(file))
+    assert website == [
+        {
+            "from_page": "home",
+            "to_page": "products",
+            "transition_probability": "1.0",
+        },
+        {
+            "from_page": "products",
+            "to_page": "checkout",
+            "transition_probability": "1.0",
+        },
+    ]
 
 
 def test_main_uses_default_config_and_output_dir(

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime
 from random import Random
 from zoneinfo import ZoneInfo
@@ -197,6 +198,48 @@ def test_campaign_provenance_is_available_on_campaign_arrivals() -> None:
 
     assert any(record.campaign_id == "paid_search_jan" for record in records)
     assert any(record.channel == "paid_search" for record in records)
+
+
+def test_carryover_arrivals_generate_users_without_campaign_pageview_properties() -> (
+    None
+):
+    config = traffic_config(
+        start_date="2026-01-01T00:00:00",
+        end_date="2026-01-03T00:00:00",
+    )
+    config = replace(
+        config,
+        arrivals=replace(
+            config.arrivals,
+            maximum_rate_per_hour=0.001,
+            hourly_intensity=dict.fromkeys(range(24), 0.0),
+        ),
+        campaigns=(
+            campaign(
+                end="2026-01-01T00:00:00",
+                daily_spend=100.0,
+                saturation=1.0,
+                maximum_visitor_lift=24.0,
+            ),
+        ),
+    )
+
+    dataset = generate_dataset(config)
+    carryover_sessions = [
+        session
+        for session in dataset.sessions
+        if session.session_start_time.date() == datetime(2026, 1, 2, tzinfo=TZ).date()
+    ]
+
+    assert carryover_sessions
+    for session in carryover_sessions:
+        assert session.campaign_id is None
+        for event in session.events:
+            assert "campaign_id" not in event.properties
+            assert "channel" not in event.properties
+            assert "utm_source" not in event.properties
+            assert "utm_medium" not in event.properties
+            assert "utm_campaign" not in event.properties
 
 
 def test_campaign_pageviews_include_utm_properties() -> None:
