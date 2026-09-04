@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.7.0 (2026-09-04)
+
+### Features
+
+- Add website graph raw source
+  ([`853194a`](https://github.com/SpencerRWood/synthetic-website-data/commit/853194a8b5f226fc6faa717c459510a7eeff0325))
+
+
 ## v0.6.0 (2026-08-31)
 
 ### Features
