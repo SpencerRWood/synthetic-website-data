@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.9.0 (2026-09-04)
+
+### Features
+
+- Containerize synthetic website data
+  ([`3227b7b`](https://github.com/SpencerRWood/synthetic-website-data/commit/3227b7bd1c5bfeeceb1f788c81998209ca40cd77))
+
+
 ## v0.8.0 (2026-09-04)
 
 ### Features
