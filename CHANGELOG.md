@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.8.0 (2026-09-04)
+
+### Features
+
+- Add synthetic generator CLI
+  ([`79645e2`](https://github.com/SpencerRWood/synthetic-website-data/commit/79645e2a27ae3b45df567269cb722cb860b6d1fe))
+
+
 ## v0.7.0 (2026-09-04)
 
 ### Features
