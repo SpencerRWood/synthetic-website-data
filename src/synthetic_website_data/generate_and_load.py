@@ -8,7 +8,11 @@ from alembic import command
 from alembic.config import Config
 
 from main import DEFAULT_CONFIG_PATH, DEFAULT_OUTPUT_DIR, generate_and_export
-from synthetic_website_data.database.loader import load_campaigns_csv, load_events_csv
+from synthetic_website_data.database.loader import (
+    load_campaigns_csv,
+    load_events_csv,
+    load_website_csv,
+)
 
 
 def progress(message: str) -> None:
@@ -48,6 +52,14 @@ def run_generate_and_load(
         progress=progress,
     )
     progress(f"Loaded rows into raw.campaigns: {loaded_campaign_rows}")
+
+    progress("Replacing raw.website with generated website.csv")
+    loaded_website_rows = load_website_csv(
+        outputs["website_csv"],
+        replace=True,
+        progress=progress,
+    )
+    progress(f"Loaded rows into raw.website: {loaded_website_rows}")
     progress("Done")
 
     return outputs

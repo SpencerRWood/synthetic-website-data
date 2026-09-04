@@ -32,6 +32,12 @@ EXPECTED_CAMPAIGNS_HEADER = (
     "expected_incremental_visitors",
 )
 
+EXPECTED_WEBSITE_HEADER = (
+    "from_page",
+    "to_page",
+    "transition_probability",
+)
+
 COPY_EVENTS_SQL = """
 COPY raw.events (
     event_id,
@@ -61,6 +67,19 @@ COPY raw.campaigns (
     actual_adstock,
     actual_saturated_demand,
     expected_incremental_visitors
+)
+FROM STDIN
+WITH (
+    FORMAT CSV,
+    HEADER TRUE
+)
+"""
+
+COPY_WEBSITE_SQL = """
+COPY raw.website (
+    from_page,
+    to_page,
+    transition_probability
 )
 FROM STDIN
 WITH (
@@ -183,6 +202,38 @@ def _validate_campaign_row(
         )
 
 
+def _validate_website_row(
+    row: dict[str, str],
+    *,
+    path: Path,
+    line_number: int,
+) -> None:
+    _validate_required_text(
+        row["from_page"],
+        "from_page",
+        path=path,
+        line_number=line_number,
+    )
+    _validate_required_text(
+        row["to_page"],
+        "to_page",
+        path=path,
+        line_number=line_number,
+    )
+    try:
+        probability = float(row["transition_probability"])
+    except ValueError as error:
+        raise CsvValidationError(
+            f"{path} line {line_number} has invalid transition_probability "
+            f"{row['transition_probability']!r}."
+        ) from error
+    if not 0 <= probability <= 1:
+        raise CsvValidationError(
+            f"{path} line {line_number} has out-of-range transition_probability "
+            f"{row['transition_probability']!r}."
+        )
+
+
 def validate_events_csv(csv_path: str | PathLike[str]) -> tuple[str, ...]:
     """Validate the events CSV shape needed before database mutation."""
     path = Path(csv_path)
@@ -256,6 +307,35 @@ def validate_campaigns_csv(csv_path: str | PathLike[str]) -> tuple[str, ...]:
     return header
 
 
+def validate_website_csv(csv_path: str | PathLike[str]) -> tuple[str, ...]:
+    """Validate the configured website-graph edge CSV before database mutation."""
+    path = Path(csv_path)
+    if not path.is_file():
+        raise FileNotFoundError(path)
+
+    with path.open(encoding="utf-8", newline="") as file:
+        reader = csv.reader(file)
+        try:
+            header = tuple(next(reader))
+        except StopIteration as error:
+            raise CsvValidationError(
+                f"{path} is empty; expected a website header."
+            ) from error
+
+        if header != EXPECTED_WEBSITE_HEADER:
+            expected = ",".join(EXPECTED_WEBSITE_HEADER)
+            actual = ",".join(header) if header else "<missing>"
+            raise CsvValidationError(
+                f"{path} has invalid website header {actual!r}; expected {expected!r}."
+            )
+
+        dict_reader = csv.DictReader(file, fieldnames=header)
+        for line_number, row in enumerate(dict_reader, start=2):
+            _validate_website_row(row, path=path, line_number=line_number)
+
+    return header
+
+
 def validate_events_csv_header(csv_path: str | PathLike[str]) -> tuple[str, ...]:
     """Validate and return the header from an events CSV."""
     return validate_events_csv(csv_path)
@@ -264,6 +344,11 @@ def validate_events_csv_header(csv_path: str | PathLike[str]) -> tuple[str, ...]
 def validate_campaigns_csv_header(csv_path: str | PathLike[str]) -> tuple[str, ...]:
     """Validate and return the header from a campaigns CSV."""
     return validate_campaigns_csv(csv_path)
+
+
+def validate_website_csv_header(csv_path: str | PathLike[str]) -> tuple[str, ...]:
+    """Validate and return the header from a website graph CSV."""
+    return validate_website_csv(csv_path)
 
 
 def load_events_csv(
@@ -344,6 +429,53 @@ def load_campaigns_csv(
             with (
                 path.open("r", encoding="utf-8", newline="") as file,
                 cursor.copy(COPY_CAMPAIGNS_SQL) as copy,
+            ):
+                for chunk in file:
+                    copy.write(chunk)
+
+            row_count = cursor.rowcount
+
+        if progress is not None:
+            progress("Committing database transaction")
+        connection.commit()
+    except Exception:
+        if progress is not None:
+            progress("Rolling back database transaction")
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+    return int(row_count) if row_count is not None else -1
+
+
+def load_website_csv(
+    csv_path: str | PathLike[str],
+    *,
+    replace: bool = False,
+    progress: Callable[[str], None] | None = None,
+) -> int:
+    """Load a generated website-graph CSV into raw.website with PostgreSQL COPY."""
+    path = Path(csv_path)
+    if progress is not None:
+        progress(f"Validating website CSV: {path}")
+    validate_website_csv(path)
+
+    if progress is not None:
+        progress("Opening PostgreSQL connection")
+    connection = connect()
+    try:
+        with connection.cursor() as cursor:
+            if replace:
+                if progress is not None:
+                    progress("Deleting old rows from raw.website")
+                cursor.execute("TRUNCATE raw.website")
+
+            if progress is not None:
+                progress("Uploading website CSV with PostgreSQL COPY")
+            with (
+                path.open("r", encoding="utf-8", newline="") as file,
+                cursor.copy(COPY_WEBSITE_SQL) as copy,
             ):
                 for chunk in file:
                     copy.write(chunk)

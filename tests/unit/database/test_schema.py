@@ -1,7 +1,7 @@
 from sqlalchemy import Date, Numeric, Text
 from sqlalchemy.dialects.postgresql import JSONB
 
-from synthetic_website_data.database.schema import campaigns, events
+from synthetic_website_data.database.schema import campaigns, events, website
 
 
 def test_raw_events_schema_includes_event_type_and_properties() -> None:
@@ -24,3 +24,11 @@ def test_raw_campaigns_schema_includes_daily_calculated_metrics() -> None:
     assert isinstance(campaigns.c.expected_incremental_visitors.type, Numeric)
     assert not campaigns.c.campaign_id.nullable
     assert not campaigns.c.date_day.nullable
+
+
+def test_raw_website_schema_includes_directed_graph_edges() -> None:
+    assert isinstance(website.c.from_page.type, Text)
+    assert isinstance(website.c.to_page.type, Text)
+    assert isinstance(website.c.transition_probability.type, Numeric)
+    assert not website.c.from_page.nullable
+    assert not website.c.to_page.nullable

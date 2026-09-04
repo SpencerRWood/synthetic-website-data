@@ -175,18 +175,32 @@ def _choose_campaign_source(
     effects: tuple[CampaignEffect, ...],
     rng: Random,
 ) -> dict[str, str | None]:
+    """Select direct campaign provenance for an accepted arrival.
+
+    Carryover lift still increases the arrival rate, but it represents users
+    returning because they remember a past campaign rather than a current ad
+    interaction.  Only effects with spend on the arrival day receive campaign
+    and UTM provenance.
+    """
     total_rate = baseline_rate + sum(
         effect.incremental_visitors / 24.0 for effect in effects
     )
     if total_rate <= 0:
         return _empty_campaign_source()
 
+    attributable_effects = tuple(effect for effect in effects if effect.daily_spend > 0)
+    unattributed_rate = baseline_rate + sum(
+        effect.incremental_visitors / 24.0
+        for effect in effects
+        if effect.daily_spend == 0
+    )
+
     threshold = rng.random() * total_rate
-    if threshold < baseline_rate:
+    if threshold < unattributed_rate:
         return _empty_campaign_source()
 
-    cumulative = baseline_rate
-    for effect in effects:
+    cumulative = unattributed_rate
+    for effect in attributable_effects:
         cumulative += effect.incremental_visitors / 24.0
         if threshold <= cumulative:
             return {
