@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1
+# Build from the parent directory containing both repository checkouts:
+# docker build -f synthetic-website-data/Dockerfile.dagster -t synthetic-website-dagster .
+FROM python:3.14-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    SYNTHETIC_WEBSITE_DATA_CONFIG=/app/synthetic-website-data/configs/default.yaml \
+    SYNTHETIC_WEBSITE_DATA_OUTPUT_DIR=/data \
+    SYNTHETIC_WEBSITE_DBT_PROJECT_DIR=/app/synthetic-website-dbt \
+    DBT_PROFILES_DIR=/app/synthetic-website-dbt
+
+WORKDIR /app/synthetic-website-data
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY synthetic-website-data/pyproject.toml synthetic-website-data/README.md \
+    /app/synthetic-website-data/
+COPY synthetic-website-data/src /app/synthetic-website-data/src
+COPY synthetic-website-data/alembic /app/synthetic-website-data/alembic
+COPY synthetic-website-data/configs /app/synthetic-website-data/configs
+COPY synthetic-website-data/alembic.ini /app/synthetic-website-data/
+COPY synthetic-website-dbt/dbt_project.yml \
+    synthetic-website-dbt/packages.yml \
+    synthetic-website-dbt/profiles.example.yml \
+    /app/synthetic-website-dbt/
+COPY synthetic-website-dbt/macros /app/synthetic-website-dbt/macros
+COPY synthetic-website-dbt/models /app/synthetic-website-dbt/models
+COPY synthetic-website-dbt/tests /app/synthetic-website-dbt/tests
+RUN python -m pip install --no-cache-dir /app/synthetic-website-data \
+    "dbt-postgres>=1.11.0" \
+    && cp /app/synthetic-website-dbt/profiles.example.yml \
+        /app/synthetic-website-dbt/profiles.yml \
+    && dbt deps --project-dir /app/synthetic-website-dbt
+
+VOLUME ["/data"]
+EXPOSE 4000
+
+CMD ["dagster", "api", "grpc", "-m", "synthetic_website_data.dagster.definitions", "--host", "0.0.0.0", "--port", "4000"]

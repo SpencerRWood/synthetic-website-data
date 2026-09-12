@@ -25,6 +25,9 @@ def test_project_metadata_describes_package() -> None:
     assert project["requires-python"] == ">=3.14"
     assert project["dependencies"] == [
         "alembic>=1.17.2",
+        "dagster>=1.13.0,<2.0",
+        "dagster-postgres==0.29.16",
+        "dbt-postgres>=1.11.0",
         "psycopg>=3.3.2",
         "PyYAML>=6.0.3",
         "SQLAlchemy>=2.0.45",
@@ -43,3 +46,9 @@ def test_project_declares_typed_src_package() -> None:
         "src/synthetic_website_data",
     ]
     assert tool["coverage"]["run"]["source"] == ["synthetic_website_data"]
+
+
+def test_dagster_postgres_is_importable() -> None:
+    module = import_module("dagster_postgres")
+
+    assert module.DagsterPostgresStorage is not None

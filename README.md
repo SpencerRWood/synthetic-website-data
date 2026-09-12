@@ -107,6 +107,87 @@ docker run --rm \
 and output mount with `SYNTHETIC_WEBSITE_DATA_CONFIG` and
 `SYNTHETIC_WEBSITE_DATA_OUTPUT_DIR`, respectively.
 
+## Dagster integration
+
+This repository optionally exposes one Dagster gRPC code location. Its **Full
+Synthetic Rebuild** job generates and loads synthetic data, then invokes the
+sibling dbt project. It deliberately has no schedule or sensor, so it remains
+safe to run directly from the CLI without a Dagster deployment.
+
+```text
+Full Synthetic Rebuild
+  generate_synthetic_data  ->  build_dbt
+  synthetic-website-data       dbt build
+  generate --load              (synthetic-website-dbt)
+```
+
+The job is defined at `synthetic_website_data.dagster.definitions` and delegates
+to the existing CLIs using argument arrays.
+`SYNTHETIC_WEBSITE_DBT_PROJECT_DIR` identifies the local sibling dbt checkout;
+the default (`../synthetic-website-dbt`) is relative to the data repository.
+
+### Deployment model
+
+A production deployment can run the Dagster webserver and daemon separately
+from this gRPC code location. The code-location host requires this repository,
+the sibling `synthetic-website-dbt` checkout, database connectivity, and the
+`DAGSTER_POSTGRES_*` settings when remote runs use PostgreSQL-backed Dagster
+metadata. The control-plane host must be able to reach the gRPC endpoint.
+
+```text
+Dagster control plane
+  webserver + daemon + metadata storage
+        | gRPC
+        v
+Remote code location
+  synthetic-website-data -> synthetic-website-dbt
+```
+
+Remote runs include the control plane's Dagster `instance_ref`, which refers to
+`dagster_postgres.DagsterPostgresStorage`. The code-location host must therefore install
+`dagster-postgres==0.29.16` and inherit these central Dagster PostgreSQL
+variables before it starts the gRPC process:
+
+```text
+DAGSTER_POSTGRES_HOST
+DAGSTER_POSTGRES_PORT
+DAGSTER_POSTGRES_DB
+DAGSTER_POSTGRES_USER
+DAGSTER_POSTGRES_PASSWORD
+DAGSTER_POSTGRES_URL
+```
+
+`DAGSTER_POSTGRES_URL` is the storage setting serialized into the remote run's
+instance reference. Its host must be reachable from the code-location host and
+use a published port; do not use a container-only hostname. The component
+variables in `.env.example` document the same connection without hard-coding
+credentials.
+
+Validate the code-location runtime and its route to Dagster PostgreSQL before
+starting the gRPC process:
+
+```sh
+uv run python -c "import dagster_postgres; print('dagster-postgres OK')"
+nc -zv "$DAGSTER_POSTGRES_HOST" "$DAGSTER_POSTGRES_PORT"
+```
+
+Configure a process supervisor, TLS, authentication, network policy, and
+service discovery according to the environment that hosts the code location.
+Verify the control plane can reach the gRPC endpoint before launching **Full
+Synthetic Rebuild**.
+
+The required environment variables are:
+
+```text
+DATABASE_URL
+SYNTHETIC_WEBSITE_DATA_CONFIG (optional)
+SYNTHETIC_WEBSITE_DATA_OUTPUT_DIR (optional)
+SYNTHETIC_WEBSITE_DBT_PROJECT_DIR
+DBT_HOST, DBT_PORT, DBT_USER, DBT_PASSWORD, DBT_DBNAME, DBT_SCHEMA, DBT_THREADS
+DAGSTER_POSTGRES_HOST, DAGSTER_POSTGRES_PORT, DAGSTER_POSTGRES_DB
+DAGSTER_POSTGRES_USER, DAGSTER_POSTGRES_PASSWORD, DAGSTER_POSTGRES_URL
+```
+
 ## PostgreSQL Raw Event Loading
 
 The generator remains independent of PostgreSQL: first generate `events.csv`,

@@ -1,7 +1,7 @@
 """Generate website data files and replace raw PostgreSQL events."""
 
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from alembic import command
@@ -18,6 +18,9 @@ from synthetic_website_data.generation import (
     generate_and_export,
 )
 
+type GeneratedOutputs = dict[str, Path]
+type LoadResults = dict[str, int]
+
 
 def progress(message: str) -> None:
     sys.stdout.write(f"[synthetic-website-data] {message}\n")
@@ -27,7 +30,7 @@ def progress(message: str) -> None:
 def run_generate_and_load(
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     output_dir: str | Path = DEFAULT_OUTPUT_DIR,
-) -> dict[str, Path]:
+) -> GeneratedOutputs:
     """Generate output files, migrate PostgreSQL, and replace raw.events."""
     config = Path(config_path)
     destination = Path(output_dir)
@@ -36,6 +39,17 @@ def run_generate_and_load(
     outputs = generate_and_export(config, destination)
     for label, path in outputs.items():
         progress(f"Wrote {label}: {path}")
+
+    load_generated_data(outputs, progress=progress)
+    return outputs
+
+
+def load_generated_data(
+    outputs: GeneratedOutputs,
+    *,
+    progress: Callable[[str], None] = progress,
+) -> LoadResults:
+    """Apply migrations and replace raw tables from existing generated exports."""
 
     progress("Applying Alembic migrations")
     alembic_config = Config("alembic.ini")
@@ -66,7 +80,11 @@ def run_generate_and_load(
     progress(f"Loaded rows into raw.website: {loaded_website_rows}")
     progress("Done")
 
-    return outputs
+    return {
+        "events": loaded_rows,
+        "campaigns": loaded_campaign_rows,
+        "website": loaded_website_rows,
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> None:
