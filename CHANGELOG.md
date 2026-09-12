@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.10.0 (2026-09-12)
+
+### Features
+
+- Add Dagster rebuild orchestration
+  ([`099f740`](https://github.com/SpencerRWood/synthetic-website-data/commit/099f740a94a605775a5f6b08f70b9c9b23ca2b8d))
+
+
 ## v0.9.0 (2026-09-04)
 
 ### Features
