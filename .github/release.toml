@@ -1,0 +1,10 @@
+version = 1
+
+[python]
+version = "3.14"
+
+[validation]
+checks = ["mypy", "pytest", "pre-commit"]
+
+[release]
+semantic_release = true
