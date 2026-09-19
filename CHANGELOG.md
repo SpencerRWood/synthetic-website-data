@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.10.1 (2026-09-19)
+
+### Bug Fixes
+
+- **ci**: Rely on reusable workflow token
+  ([`5b525f7`](https://github.com/SpencerRWood/synthetic-website-data/commit/5b525f768e500282c9d8b771115ace7b006363e5))
+
+
 ## v0.10.0 (2026-09-12)
 
 ### Features
