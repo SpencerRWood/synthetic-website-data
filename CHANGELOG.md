@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.11.0 (2026-09-26)
+
+### Features
+
+- **dev**: Load local secrets through Infisical
+  ([`26e2c03`](https://github.com/SpencerRWood/synthetic-website-data/commit/26e2c038142fbd696f7df081ce0b7e42f54674a6))
+
+
 ## v0.10.1 (2026-09-19)
 
 ### Bug Fixes
