@@ -36,6 +36,16 @@ The `py.typed` marker declares the package as typed.
 
 ## Local Setup
 
+Sign in to the self-hosted Infisical instance with your developer account, then
+run local commands through `./scripts/dev`. The launcher reads `DATABASE_URL`
+from `Infrastructure Dev/dev:/synthetic-website-data`. Ordinary generation paths
+use the application defaults or CLI flags. No local `.env` file is required.
+
+```sh
+infisical login --domain=https://dev-infisical.woodhost.cloud/api --method=user --interactive
+./scripts/dev uv run --frozen synthetic-website-data generate --output-dir data
+```
+
 Install dependencies into the local environment:
 
 ```sh
@@ -91,13 +101,12 @@ docker run --rm -v "$(pwd)/data:/data" synthetic-website-data \
   generate --config /app/configs/default.yaml --output-dir /data
 ```
 
-For PostgreSQL loading, pass the existing `DATABASE_URL` configuration through
-the environment. When PostgreSQL runs in another Compose service, use its
-service hostname rather than `localhost`:
+For PostgreSQL loading, pass the Infisical-injected `DATABASE_URL` into the
+container by variable name:
 
 ```sh
-docker run --rm \
-  -e DATABASE_URL="postgresql://user:password@postgres:5432/database" \
+./scripts/dev docker run --rm \
+  -e DATABASE_URL \
   -v "$(pwd)/data:/data" \
   synthetic-website-data generate-and-load
 ```
@@ -160,8 +169,10 @@ DAGSTER_POSTGRES_URL
 `DAGSTER_POSTGRES_URL` is the storage setting serialized into the remote run's
 instance reference. Its host must be reachable from the code-location host and
 use a published port; do not use a container-only hostname. The component
-variables in `.env.example` document the same connection without hard-coding
-credentials.
+variables in `.env.example` document the same connection without credentials.
+For a local code-location process, use `./scripts/dev --dagster <existing command>`;
+it also injects the shared `/dagster` and `/synthetic-website-dbt` secrets and
+sets ordinary host, port, database, and user defaults.
 
 Validate the code-location runtime and its route to Dagster PostgreSQL before
 starting the gRPC process:
@@ -198,14 +209,13 @@ configuration.
 Apply schema migrations:
 
 ```sh
-export DATABASE_URL="postgresql://user:password@host:5432/database"
-uv run alembic upgrade head
+./scripts/dev uv run --frozen alembic upgrade head
 ```
 
 Create a future migration:
 
 ```sh
-uv run alembic revision --autogenerate -m "description"
+./scripts/dev uv run --frozen alembic revision --autogenerate -m "description"
 ```
 
 Generate CSV files:
@@ -268,23 +278,22 @@ Supported property spec types are `choice`, `integer`, `float`, `id`, and
 Load generated events with the development replace workflow:
 
 ```sh
-uv run python -m synthetic_website_data.database data/events.csv --replace
+./scripts/dev uv run --frozen python -m synthetic_website_data.database data/events.csv --replace
 ```
 
 Generate the dataset, apply migrations, delete old raw rows, and reload the
 newly generated `events.csv`, `campaigns.csv`, and `website.csv` in one step:
 
 ```sh
-export DATABASE_URL="postgresql://user:password@host:5432/database"
-synthetic-website-data generate --load
+./scripts/dev uv run --frozen synthetic-website-data generate --load
 ```
 
 `synthetic-website-data generate-and-load` is an equivalent explicit command.
 Both loading commands require `DATABASE_URL`; they do not read credentials from
 YAML or prompt for them.
 
-The VS Code `Generate and load PostgreSQL` task runs this same workflow. It
-requires a local `.env` file with `DATABASE_URL` and intentionally replaces
+The VS Code `Generate and load PostgreSQL` task runs this same workflow through
+Infisical and intentionally replaces
 `raw.events`,
 `raw.campaigns`, and `raw.website` every time it succeeds. `raw.website` is a
 directed adjacency list of the configured site graph:

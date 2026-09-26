@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+paths=(--path=/synthetic-website-data)
+if [[ "${1:-}" == "--dagster" ]]; then
+  shift
+  paths+=(--path=/dagster --path=/synthetic-website-dbt)
+  export DAGSTER_POSTGRES_HOST="${DAGSTER_POSTGRES_HOST:-192.168.1.21}"
+  export DAGSTER_POSTGRES_PORT="${DAGSTER_POSTGRES_PORT:-25433}"
+  export DAGSTER_POSTGRES_DB="${DAGSTER_POSTGRES_DB:-dagster}"
+  export DAGSTER_POSTGRES_USER="${DAGSTER_POSTGRES_USER:-dagster}"
+  export DBT_HOST="${DBT_HOST:-192.168.1.21}"
+  export DBT_PORT="${DBT_PORT:-25433}"
+  export DBT_USER="${DBT_USER:-dbt_editor}"
+fi
+
+if (( $# == 0 )); then
+  echo "Usage: ./scripts/dev [--dagster] <command> [args...]" >&2
+  exit 2
+fi
+
+exec infisical run \
+  --domain=https://dev-infisical.woodhost.cloud/api \
+  --projectId=7ea10433-2eeb-4c57-95a9-b793dd40c7a4 \
+  --env=dev \
+  "${paths[@]}" \
+  -- "$@"

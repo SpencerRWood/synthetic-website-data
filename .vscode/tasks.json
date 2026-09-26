@@ -4,7 +4,7 @@
     {
       "label": "Generate and load PostgreSQL",
       "type": "shell",
-      "command": "set -a; source .env; uv run synthetic-website-data generate --load",
+      "command": "./scripts/dev uv run --frozen synthetic-website-data generate --load",
       "presentation": {
         "panel": "shared",
         "clear": true
