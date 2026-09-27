@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.12.0 (2026-09-27)
+
+### Features
+
+- **dev**: Supervise synthetic Dagster code location
+  ([`f88d8ca`](https://github.com/SpencerRWood/synthetic-website-data/commit/f88d8ca27af13e9cdf13fe24e2d2ad515414319b))
+
+
 ## v0.11.0 (2026-09-26)
 
 ### Features
