@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "$0")/.." && pwd)
+"$repo_dir/scripts/refresh-dagster-grpc-env"
+if launchctl print system/com.spencerwood.synthetic-dagster-grpc >/dev/null 2>&1; then
+  echo "Existing boot-time Dagster LaunchDaemon is installed; no login agent needed."
+  exit 0
+fi
+label=com.wood.synthetic-dagster-grpc
+agent_dir="$HOME/Library/LaunchAgents"
+log_dir="$HOME/Library/Logs"
+agent_path="$agent_dir/$label.plist"
+mkdir -p "$agent_dir" "$log_dir"
+
+cat > "$agent_path" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$label</string>
+  <key>ProgramArguments</key><array><string>$repo_dir/scripts/start-dagster-grpc</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$log_dir/synthetic-dagster-grpc.log</string>
+  <key>StandardErrorPath</key><string>$log_dir/synthetic-dagster-grpc-error.log</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>$repo_dir/.venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict></plist>
+EOF
+
+plutil -lint "$agent_path"
+launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$agent_path"
