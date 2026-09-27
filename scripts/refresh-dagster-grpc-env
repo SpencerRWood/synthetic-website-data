@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+remote_host=${SYNTHETIC_DAGSTER_INFRA_HOST:-swood-server}
+secret_dir="$HOME/.config/wood/synthetic-dagster"
+install -d -m 0700 "$secret_dir"
+
+refresh() {
+  local name=$1 path=$2 required=$3 remote_file="/srv/infrastructure/secrets/runtime/synthetic-$1.env"
+  local temporary
+  temporary=$(mktemp "$secret_dir/.${name}.XXXXXX")
+  trap 'rm -f "$temporary"' RETURN
+
+  ssh -o BatchMode=yes "$remote_host" sudo /usr/local/sbin/resolve-infrastructure-infisical-env \
+    --environment dev --path "$path" --output "$remote_file" \
+    ${required}
+  ssh -o BatchMode=yes "$remote_host" sudo cat "$remote_file" > "$temporary"
+  test -s "$temporary"
+  chmod 0600 "$temporary"
+  mv "$temporary" "$secret_dir/$name.env"
+  trap - RETURN
+}
+
+refresh dagster /dagster '--require DAGSTER_POSTGRES_PASSWORD --require DAGSTER_POSTGRES_URL'
+refresh data /synthetic-website-data '--require DATABASE_URL'
+refresh dbt /synthetic-website-dbt '--require DBT_PASSWORD'

@@ -174,6 +174,20 @@ For a local code-location process, use `./scripts/dev --dagster <existing comman
 it also injects the shared `/dagster` and `/synthetic-website-dbt` secrets and
 sets ordinary host, port, database, and user defaults.
 
+On the development MacBook, the existing boot-time LaunchDaemon
+`com.spencerwood.synthetic-dagster-grpc` starts `scripts/start-dagster-grpc`
+through `~/scripts/start-synthetic-dagster-grpc.sh`. Run
+`./scripts/refresh-dagster-grpc-env` to fetch the three required secret sets
+through the infrastructure host's machine identity into mode 0600 local files.
+The launcher listens on all interfaces at port 4000 and restarts after a process
+failure. It resolves `swood-server.local` at each start for the published
+PostgreSQL endpoint, so the Beelink's LAN address is not embedded in the
+launcher. Refresh the protected files after secret rotation, then restart the
+LaunchDaemon. `./scripts/install-dagster-grpc-launchagent` provides a login
+agent on Macs without the boot-time LaunchDaemon. Check
+`~/Library/Logs/synthetic-dagster-grpc-error.log` if Dagster cannot load this
+code location.
+
 Validate the code-location runtime and its route to Dagster PostgreSQL before
 starting the gRPC process:
 
