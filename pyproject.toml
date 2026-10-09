@@ -158,3 +158,9 @@ token = { env = "GITHUB_TOKEN" }
 
 [tool.semantic_release.publish]
 upload_to_vcs_release = true
+
+[tool.wood.architecture]
+domain = "reference-solutions"
+capability = "analytics-lifecycle"
+kind = "data-generator"
+solution = "synthetic-website-analytics-platform"
